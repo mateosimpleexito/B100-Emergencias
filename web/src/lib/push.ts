@@ -1,11 +1,13 @@
 import webpush from 'web-push'
 import type { Incident } from '@/types'
 
-webpush.setVapidDetails(
-  'mailto:' + process.env.VAPID_EMAIL!,
-  process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY!,
-  process.env.VAPID_PRIVATE_KEY!
-)
+function initWebPush() {
+  webpush.setVapidDetails(
+    'mailto:' + process.env.VAPID_EMAIL!,
+    process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY!,
+    process.env.VAPID_PRIVATE_KEY!
+  )
+}
 
 export interface PushPayload {
   title: string
@@ -32,6 +34,7 @@ export async function sendPushToSubscription(
   subscription: { endpoint: string; p256dh: string; auth: string },
   payload: PushPayload
 ) {
+  initWebPush()
   await webpush.sendNotification(
     {
       endpoint: subscription.endpoint,
