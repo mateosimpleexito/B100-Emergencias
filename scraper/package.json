@@ -1,0 +1,13 @@
+{
+  "name": "b100-scraper",
+  "version": "1.0.0",
+  "description": "Persistent worker - polls SGO Norte every 3s for B100 dispatches",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js"
+  },
+  "dependencies": {
+    "cheerio": "^1.0.0"
+  }
+}
