@@ -12,12 +12,13 @@ B100-Emergencias es una Progressive Web App (PWA) de uso interno para los bomber
 
 ### 1.2 Contexto operativo
 
-- **Organización:** Bomberos Voluntarios San Isidro (Argentina) — Cuartel 100
-- **Personal:** aproximadamente 100 bomberos voluntarios
-- **Despacho:** centralizado vía radio; las emergencias también son visibles en el sitio externo [bomberos24horas](https://www.bomberos24horas.com)
+- **Organización:** Bomberos Voluntarios San Isidro — Cuartel 100
+- **Personal:** aproximadamente 100 bomberos voluntarios (máx. 50 activos simultáneos)
+- **Despacho:** centralizado vía radio; emergencias visibles en [sgonorte.bomberosperu.gob.pe/24horas](https://sgonorte.bomberosperu.gob.pe/24horas)
 - **Guardias:** rotan en el cuartel; central despacha a quienes están de guardia
 - **Destinatarios:** únicamente personal interno (no ciudadanos)
 - **Objetivo a futuro:** integración con la Municipalidad de San Isidro
+- **Alcance:** herramienta de **apoyo**, no reemplaza la radio ni el sistema de despacho existente
 
 ### 1.3 Problema que resuelve
 
@@ -163,13 +164,13 @@ units (
 
 **Pre-carga de las 5 unidades de B100:**
 
-| Nombre | Tipo | Marca/Modelo | Año |
-|---|---|---|---|
-| Maquina 100 1 | autobomba | Spartan Metrostar | 2014 |
-| Rescate 100 | rescate | E-One Quest Rescue Pumper | 2013 |
-| Ambulancia 100 | ambulancia | Mercedes Sprinter Bertolini | 2019 |
-| Auxiliar 1 | auxiliar | Mitsubishi L200 | — |
-| Auxiliar 2 | auxiliar | Ford F250 | — |
+| Nombre | Código despacho | Tipo | Marca/Modelo | Año | Dispara alarma |
+|---|---|---|---|---|---|
+| Maquina 100 1 | `M100-1` | autobomba | Spartan Metrostar | 2014 | ✅ |
+| Rescate 100 | `RES-100` | rescate | E-One Quest Rescue Pumper | 2013 | ✅ |
+| Ambulancia 100 | `AMB-100` | ambulancia | Mercedes Sprinter Bertolini | 2019 | ✅ |
+| Auxiliar 1 | — | auxiliar | Mitsubishi L200 | — | ❓ |
+| Auxiliar 2 | — | auxiliar | Ford F250 | — | ❓ |
 
 ---
 
