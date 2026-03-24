@@ -1,6 +1,7 @@
 # PLANNING.md — B100-Emergencias
 
-> Documento de planificación del sistema de gestión de emergencias para **Bomberos Voluntarios San Isidro 100**.
+> Herramienta de **apoyo operativo** para los bomberos del **Cuartel San Isidro 100**.
+> No reemplaza la radio ni el sistema de despacho — lo complementa.
 
 ---
 
@@ -8,359 +9,266 @@
 
 ### 1.1 Descripción del proyecto
 
-B100-Emergencias es una Progressive Web App (PWA) de uso interno para los bomberos voluntarios del **Cuartel San Isidro 100**. Su objetivo es digitalizar y agilizar la gestión operacional: desde la alerta de despacho hasta el cierre del incidente, pasando por el accountability en escena, la gestión de guardias y el registro histórico.
+B100-Emergencias es una Progressive Web App (PWA) mobile-first de uso interno.
+Su función principal: **detectar automáticamente cuando una unidad de B100 es despachada y alertar a los bomberos con una alarma sonora**, mostrando los detalles del incidente y su ubicación en el mapa.
 
 ### 1.2 Contexto operativo
 
-- **Organización:** Bomberos Voluntarios San Isidro — Cuartel 100
-- **Personal:** aproximadamente 100 bomberos voluntarios (máx. 50 activos simultáneos)
-- **Despacho:** centralizado vía radio; emergencias visibles en [sgonorte.bomberosperu.gob.pe/24horas](https://sgonorte.bomberosperu.gob.pe/24horas)
-- **Guardias:** rotan en el cuartel; central despacha a quienes están de guardia
-- **Destinatarios:** únicamente personal interno (no ciudadanos)
-- **Objetivo a futuro:** integración con la Municipalidad de San Isidro
-- **Alcance:** herramienta de **apoyo**, no reemplaza la radio ni el sistema de despacho existente
+| | |
+|---|---|
+| **Cuartel** | Bomberos Voluntarios San Isidro — Cuartel 100 |
+| **Personal** | ~100 bomberos voluntarios, máx. 50 activos simultáneos |
+| **Despacho** | Central vía radio; emergencias visibles en [sgonorte.bomberosperu.gob.pe/24horas](https://sgonorte.bomberosperu.gob.pe/24horas) |
+| **Usuarios** | Únicamente personal interno (no ciudadanos) |
+| **Plataforma** | Web (mobile-first), instalable como PWA |
+| **Alcance** | Herramienta de apoyo — no reemplaza la radio ni el despacho |
 
-### 1.3 Problema que resuelve
+### 1.3 Unidades de B100
 
-Actualmente la coordinación se hace de forma manual (radio, WhatsApp, anotaciones en papel). Esto genera:
-
-- Falta de accountability formal en escena (quién entró, cuándo, con qué EPP)
-- Sin registro digital de quién respondió a cada despacho
-- Gestión de guardias/turnos por fuera del sistema operativo
-- Sin acceso rápido a información del incidente (dirección, tipo, historia del lugar)
-- Dificultad para generar estadísticas e informes
+| Nombre | Código en SGO Norte | Tipo | Vehículo | Año |
+|---|---|---|---|---|
+| Maquina 100 1 | `M100-1` | Autobomba | Spartan Metrostar | 2014 |
+| Rescate 100 | `RES-100` | Rescate | E-One Quest Rescue Pumper | 2013 |
+| Ambulancia 100 | `AMB-100` | Ambulancia | Mercedes Sprinter Bertolini | 2019 |
+| Auxiliar 1 | `AUX-100-1` | Auxiliar | Mitsubishi L200 | — |
+| Auxiliar 2 | `AUX-100-2` | Auxiliar | Ford F250 | — |
 
 ---
 
-## 2. Stack Tecnológico y Justificación
+## 2. Fuente de datos: SGO Norte
+
+La web `sgonorte.bomberosperu.gob.pe/24horas` muestra una tabla HTML de las últimas 24 horas de emergencias con auto-refresh.
+
+### Estructura de cada fila
+
+| Campo HTML | Contenido | Ejemplo |
+|---|---|---|
+| `Nro Parte` | ID único del incidente | `2026009817` |
+| `Fecha y hora` | Timestamp del despacho | `18/03/2026 11:03:12 p.m.` |
+| `Dirección / Distrito` | Dirección + **coordenadas GPS** | `CL. S/N MEDIA LUNA (-11.9883,-76.9388) - LURIGANCHO` |
+| `Tipo` | Clasificación de la emergencia | `INCENDIO / ESTRUCTURAS / VIVIENDA / MATERIAL NOBLE` |
+| `Estado` | Estado actual | `ATENDIENDO` / `CERRADO` |
+| `Máquinas` | Unidades despachadas (chips) | `M100-1`, `RES-100`, `AMB-100` |
+
+**Clave:** las coordenadas GPS vienen embebidas en el texto de la dirección entre paréntesis. No se necesita geocodificación externa.
+
+### Estrategia de integración
+
+```
+Cron job (cada 60 seg)
+  └── GET sgonorte.bomberosperu.gob.pe/24horas
+       └── parsear HTML con cheerio
+            └── filtrar filas donde "Máquinas" contiene
+                M100-1 | RES-100 | AMB-100 | AUX-100-1 | AUX-100-2
+                 └── ¿es un Nro Parte nuevo?
+                      ├── SÍ → guardar en DB → enviar Web Push a todos los suscriptores
+                      └── NO → actualizar estado si cambió (ATENDIENDO → CERRADO)
+```
+
+---
+
+## 3. Stack Tecnológico
 
 | Capa | Tecnología | Justificación |
 |---|---|---|
-| Frontend | **Next.js 14+ (App Router)** | SSR/SSG para performance, file-based routing, soporte oficial para PWA |
-| UI | **Tailwind CSS + shadcn/ui** | Desarrollo rápido, accesibilidad integrada, componentes headless |
-| Backend/DB | **Supabase (PostgreSQL)** | Realtime nativo, Auth incluido, Storage, Row Level Security, open source |
-| Realtime | **Supabase Realtime** | WebSockets sobre Postgres CDC — posiciones de unidades, estado de incidente |
-| Push Notif. | **Web Push API / FCM** | Notificaciones nativas en Android (crítico para alertas de despacho) |
-| Offline | **Service Workers + IndexedDB** | Acceso a datos en zonas sin señal; ley de Murphy aplica en emergencias |
-| Mapas | **Mapbox GL JS** o **Leaflet + OSM** | Visualización de unidades, ruta, hidrantes, pre-planes |
-| Auth | **Supabase Auth** | JWT, RLS por rol, soporte para invitación por email |
-| Deploy | **Vercel** | CDN global, integración nativa con Next.js, previews por PR |
+| Frontend | **Next.js 14+ (App Router)** | SSR, App Router, soporte PWA |
+| UI | **Tailwind CSS + shadcn/ui** | Componentes accesibles, desarrollo rápido |
+| Backend/DB | **Supabase (PostgreSQL)** | Realtime, Auth, RLS — tier gratis cubre el uso |
+| Scraper | **Cheerio** en API Route / Edge Function | Parseo HTML liviano sin headless browser |
+| Push Notif. | **Web Push API (VAPID)** | Funciona con browser cerrado; Android nativo |
+| Cron | **Vercel Cron Jobs** | Llama al scraper cada 60 seg — gratuito |
+| Offline | **Service Worker + Cache API** | Último incidente accesible sin red |
+| Mapa | **Leaflet + OpenStreetMap** | Gratuito, offline tiles, sin límite de uso |
+| Auth | **Supabase Auth** | Login por email/magic link — sin contraseñas |
+| Deploy | **Vercel** | CI/CD nativo Next.js, dominio gratis |
 
-### 2.1 Por qué PWA y no app nativa
+### Por qué no headless browser para el scraper
 
-- Sin fricción de distribución (no requiere App Store para 100 usuarios)
-- Actualización instantánea en todos los dispositivos
-- Instalable en pantalla de inicio (Android/iOS)
-- Costos de desarrollo y mantenimiento menores
-- Funciona en cualquier dispositivo (incluyendo tablets en el cuartel)
+La web de SGO Norte es HTML renderizado server-side (PHP/Laravel). Cheerio + fetch es suficiente, más rápido y sin overhead. Si en el futuro el sitio pasa a SPA con JS, se migra a Puppeteer.
 
 ---
 
-## 3. Roles de Usuario
+## 4. MVP — Alcance del Proyecto Inicial
 
-| Rol | Descripción | Permisos clave |
-|---|---|---|
-| **Bombero** | Miembro general de guardia | Ver incidentes activos, confirmar respuesta, ver mapa, registrar entrada/salida de escena |
-| **Jefe de Guardia** | Responsable del turno en curso | Todo lo del Bombero + gestionar guardia, asignar unidades, iniciar/cerrar incidente |
-| **Oficial de Incidente** | Comandante designado en escena | Todo lo del Jefe de Guardia en el incidente + autorizar acceso a escena, PAR check |
-| **Admin** | Administrador del sistema | Gestión completa: personal, vehículos, roles, configuración del sistema |
+### 4.1 Módulo de Alarma (CORE)
 
----
+El corazón de la app. Cuando una unidad de B100 es despachada:
 
-## 4. Fases de Desarrollo
+1. El cron job detecta el nuevo `Nro Parte`
+2. Inserta el incidente en la base de datos
+3. Supabase Realtime notifica al servidor
+4. El servidor envía **Web Push** a todos los dispositivos suscritos
+5. El celular **suena y vibra** aunque el navegador esté cerrado
+6. Al tocar la notificación → abre la pantalla del incidente
 
-### Fase 1 — Fundamentos Operacionales (MVP)
+**Estados de la notificación:**
+- 🔴 Nueva emergencia — unidad de B100 despachada
+- 🟡 Actualización — cambio de estado del incidente
+- ✅ Cerrado — incidente finalizado
 
-**Objetivo:** Sistema funcional para el día a día: alerta, respuesta, mapa y guardias.
+### 4.2 Pantalla de Incidente
 
-#### 4.1.1 Infraestructura base
-- Scaffold Next.js 14 con App Router y TypeScript
-- Setup de Supabase (proyecto, tablas iniciales, RLS)
-- Configuración PWA (manifest.json, service worker, offline fallback)
-- Sistema de autenticación (invitación por email, login seguro)
-- Pipeline CI/CD con Vercel
+Al abrir la notificación, el bombero ve:
 
-#### 4.1.2 Alerta de despacho y confirmación de respuesta
-- Push notification al momento de despacho (a bomberos de guardia)
-- Pantalla de alerta con: tipo de incidente, dirección, hora, unidades despachadas
-- Botón prominente "Voy" / "No voy" (confirmación en 1 tap)
-- Vista de quiénes del equipo de guardia están respondiendo (en tiempo real)
-- Entrada manual de incidentes (integración con bomberos24horas en Fase 2)
-
-#### 4.1.3 Mapa en tiempo real
-- Mapa como pantalla principal de la app
-- Posición en tiempo real de las 5 unidades
-- Estado de cada unidad: disponible / en camino / en escena / fuera de servicio
-- Ruta desde la base al incidente
-- Overlay de hidrantes (datos manuales en Fase 1)
-
-#### 4.1.4 Gestión de guardias y turnos
-- Calendario de guardias (quién está de guardia cada día/turno)
-- Vista "guardia actual": lista de bomberos presentes en el cuartel
-- Qué unidades están disponibles y tripuladas en el turno
-- Las notificaciones de despacho solo llegan a bomberos de guardia activa
-- Designación de Jefe de Guardia por turno
-
----
-
-### Fase 2 — Seguridad y Registro
-
-**Objetivo:** Accountability formal en escena e historial completo de incidentes.
-
-#### 4.2.1 Accountability en escena
-- Registro de entrada/salida de cada bombero a la zona caliente
-- Asignación de Oficial de Incidente (IC)
-- Timer PAR con recordatorios automáticos configurables
-- Botón MAYDAY con alerta a todos los dispositivos
-- Log de incidente con timestamps automáticos en cada acción
-
-#### 4.2.2 Gestión y registro de incidentes
-- Ciclo de vida completo: despacho → en camino → en escena → controlado → cerrado
-- Informe de incidente autogenerado (PDF exportable)
-- Documentación fotográfica desde la app
-- Historial de incidentes con búsqueda y filtros
-- Integración con bomberos24horas (scraping/API para importar datos del despacho)
-
----
-
-### Fase 3 — Gestión de Compañía e Integraciones
-
-**Objetivo:** Herramientas de administración, pre-planes y conexión con sistemas externos.
-
-#### 4.3.1 Gestión de personal y vehículos
-- Legajos de personal: roles, certificaciones, contacto de emergencia
-- Registro de mantenimiento de cada uno de los 5 vehículos
-- Pre-planes de edificios importantes del partido de San Isidro
-- Dashboard de estadísticas (incidentes por tipo, respuesta por bombero, km por unidad)
-
-#### 4.3.2 Integración con Municipalidad de San Isidro
-- Propuesta de integración API con sistemas municipales
-- Datos GIS de la municipalidad
-- Base de datos de hidrantes de infraestructura municipal
-- Datos catastrales para pre-planes
-
----
-
-## 5. Modelos de Datos
-
-### 5.1 `units` — Unidades
-
-```sql
-units (
-  id            uuid PRIMARY KEY,
-  name          text NOT NULL,           -- ej. "Maquina 100 1"
-  short_name    text,                    -- ej. "M1"
-  type          text,                    -- autobomba | rescate | ambulancia | auxiliar
-  make          text,                    -- Spartan, E-One, Mercedes, Mitsubishi, Ford
-  model         text,                    -- Metrostar, Quest, Sprinter, L200, F250
-  year          int,
-  status        text DEFAULT 'available', -- available | en_route | on_scene | out_of_service
-  current_lat   float8,
-  current_lng   float8,
-  last_seen_at  timestamptz,
-  created_at    timestamptz DEFAULT now()
-)
+```
+┌─────────────────────────────────────┐
+│ 🔴 INCENDIO / ESTRUCTURAS           │
+│ VIVIENDA / MATERIAL NOBLE           │
+│                                     │
+│ 📍 CL. S/N MEDIA LUNA, LURIGANCHO   │
+│                                     │
+│ 🚒 M100-1  🚑 AMB-100               │
+│                                     │
+│ 🕐 11:03 p.m.  •  Nro: 2026009817  │
+│ Estado: ATENDIENDO                  │
+│                                     │
+│  [       VER EN MAPA       ]        │
+└─────────────────────────────────────┘
 ```
 
-**Pre-carga de las 5 unidades de B100:**
+### 4.3 Mapa del Incidente
 
-| Nombre | Código despacho | Tipo | Marca/Modelo | Año | Dispara alarma |
-|---|---|---|---|---|---|
-| Maquina 100 1 | `M100-1` | autobomba | Spartan Metrostar | 2014 | ✅ |
-| Rescate 100 | `RES-100` | rescate | E-One Quest Rescue Pumper | 2013 | ✅ |
-| Ambulancia 100 | `AMB-100` | ambulancia | Mercedes Sprinter Bertolini | 2019 | ✅ |
-| Auxiliar 1 | — | auxiliar | Mitsubishi L200 | — | ❓ |
-| Auxiliar 2 | — | auxiliar | Ford F250 | — | ❓ |
+- Pin en las coordenadas exactas del incidente
+- Las coordenadas se extraen del texto de la dirección con regex: `/\((-?\d+\.\d+),(-?\d+\.\d+)\)/`
+- Mapa base OpenStreetMap (sin costo)
+- Botón "Abrir en Google Maps / Waze" para navegación
 
----
+### 4.4 Historial de Emergencias B100
 
-### 5.2 `profiles` — Personal
+- Lista de los últimos incidentes donde participaron unidades de B100
+- Filtros: fecha, tipo, unidad, estado
+- Vista de detalle de cada incidente pasado
 
-```sql
-profiles (
-  id            uuid PRIMARY KEY REFERENCES auth.users,
-  full_name     text NOT NULL,
-  badge_number  text UNIQUE,             -- número de legajo
-  role          text DEFAULT 'bombero',  -- bombero | jefe_guardia | oficial_incidente | admin
-  phone         text,
-  certifications text[],
-  is_active     boolean DEFAULT true,
-  created_at    timestamptz DEFAULT now()
-)
-```
+### 4.5 Suscripción a Alarmas
+
+- Al entrar a la app por primera vez: "¿Activar alarmas?" → botón grande
+- Guarda el `push subscription` en Supabase vinculado al usuario
+- El bombero puede silenciar temporalmente (ej. está de franco)
 
 ---
 
-### 5.3 `shifts` — Guardias / Turnos
+## 5. Modelo de Datos (MVP)
 
-```sql
-shifts (
-  id              uuid PRIMARY KEY,
-  start_time      timestamptz NOT NULL,
-  end_time        timestamptz NOT NULL,
-  jefe_guardia_id uuid REFERENCES profiles(id),
-  notes           text,
-  created_at      timestamptz DEFAULT now()
-)
-
-shift_members (
-  id        uuid PRIMARY KEY,
-  shift_id  uuid REFERENCES shifts(id),
-  profile_id uuid REFERENCES profiles(id),
-  checked_in_at  timestamptz,
-  checked_out_at timestamptz
-)
-```
-
----
-
-### 5.4 `incidents` — Incidentes
+### `incidents`
 
 ```sql
 incidents (
-  id              uuid PRIMARY KEY,
-  incident_number text UNIQUE,          -- número de siniestro (ej. S-2024-001234)
-  type            text,                 -- incendio | accidente | rescate | médico | etc.
-  address         text NOT NULL,
-  lat             float8,
-  lng             float8,
-  status          text DEFAULT 'dispatched',
-    -- dispatched | en_route | on_scene | controlled | closed
-  dispatched_at   timestamptz DEFAULT now(),
-  arrived_at      timestamptz,
-  controlled_at   timestamptz,
-  closed_at       timestamptz,
-  ic_id           uuid REFERENCES profiles(id),  -- Oficial de Incidente
-  shift_id        uuid REFERENCES shifts(id),
-  notes           text,
-  source          text DEFAULT 'manual',  -- manual | bomberos24horas
-  external_id     text,
-  created_at      timestamptz DEFAULT now()
+  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  nro_parte       text UNIQUE NOT NULL,        -- "2026009817"
+  type            text NOT NULL,               -- "INCENDIO / ESTRUCTURAS / ..."
+  address         text NOT NULL,               -- dirección completa del SGO
+  district        text,                        -- "LURIGANCHO"
+  lat             float8,                      -- extraído de la dirección
+  lng             float8,                      -- extraído de la dirección
+  status          text NOT NULL,               -- "ATENDIENDO" | "CERRADO"
+  dispatched_at   timestamptz NOT NULL,        -- fecha/hora del SGO
+  units           text[] NOT NULL,             -- ["M100-1", "AMB-100"]
+  raw_html        text,                        -- HTML de la fila (debug)
+  created_at      timestamptz DEFAULT now(),
+  updated_at      timestamptz DEFAULT now()
 )
 ```
 
----
-
-### 5.5 `incident_responses` — Respuestas al despacho
+### `push_subscriptions`
 
 ```sql
-incident_responses (
-  id          uuid PRIMARY KEY,
-  incident_id uuid REFERENCES incidents(id),
-  profile_id  uuid REFERENCES profiles(id),
-  unit_id     uuid REFERENCES units(id),
-  response    text,           -- going | not_going | standby
-  responded_at timestamptz DEFAULT now()
+push_subscriptions (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id     uuid REFERENCES auth.users,
+  endpoint    text NOT NULL,
+  p256dh      text NOT NULL,
+  auth        text NOT NULL,
+  active      boolean DEFAULT true,
+  created_at  timestamptz DEFAULT now()
 )
 ```
 
----
-
-### 5.6 `accountability` — Accountability en escena
+### `profiles`
 
 ```sql
-accountability_log (
-  id           uuid PRIMARY KEY,
-  incident_id  uuid REFERENCES incidents(id),
-  profile_id   uuid REFERENCES profiles(id),
-  entry_time   timestamptz,
-  exit_time    timestamptz,
-  notes        text
+profiles (
+  id          uuid PRIMARY KEY REFERENCES auth.users,
+  full_name   text NOT NULL,
+  badge       text UNIQUE,          -- número de legajo
+  role        text DEFAULT 'bombero',
+  is_active   boolean DEFAULT true,
+  created_at  timestamptz DEFAULT now()
 )
 ```
 
 ---
 
-### 5.7 `incident_logs` — Bitácora de incidente
+## 6. Flujo Técnico Completo
 
-```sql
-incident_logs (
-  id           uuid PRIMARY KEY,
-  incident_id  uuid REFERENCES incidents(id),
-  profile_id   uuid REFERENCES profiles(id),
-  action       text,          -- despacho | llegada | entrada_escena | par_check | mayday | cierre | etc.
-  description  text,
-  logged_at    timestamptz DEFAULT now()
-)
+```
+[SGO Norte web] ──(fetch HTML)──> [Vercel Cron /api/scraper]
+                                          │
+                              parsea tabla con cheerio
+                                          │
+                              ¿hay Nro Parte con M100-1/RES-100/AMB-100?
+                                    │               │
+                                   SÍ (nuevo)      NO → ignorar
+                                    │
+                          INSERT en incidents (Supabase)
+                                    │
+                          Supabase Realtime → [Next.js server]
+                                    │
+                          Web Push VAPID → todos los push_subscriptions activos
+                                    │
+                          [Celular del bombero]
+                          suena alarma + vibración
+                                    │
+                          tap → /incidents/[nro_parte]
+                          muestra detalles + mapa Leaflet
 ```
 
 ---
 
-## 6. Principios UX para Operaciones de Emergencia
+## 7. UX Principles (emergencias)
 
-### 6.1 Offline-first
-
-En una emergencia la red puede no estar disponible. Toda acción crítica debe funcionar sin conexión y sincronizarse al recuperar señal. Se utilizará Service Worker + IndexedDB para cachear incidentes activos, datos de unidades y el mapa base.
-
-### 6.2 Regla de los 2 toques
-
-Cualquier acción crítica (confirmar respuesta, registrar entrada a escena, PAR check) debe completarse en **2 toques o menos** desde la pantalla principal. El estrés operativo no admite menús profundos.
-
-### 6.3 Targets táctiles grandes
-
-Los elementos interactivos tendrán un mínimo de **48×48 px** (recomendación Apple/Google). En pantallas de alerta, los botones de acción primaria ocuparán al menos el 40% del ancho de pantalla.
-
-### 6.4 Modo oscuro obligatorio
-
-Las operaciones nocturnas son frecuentes. La app debe respetar el modo oscuro del sistema y ofrecer un toggle manual. El modo oscuro es el predeterminado en pantallas operacionales.
-
-### 6.5 Mapa como pantalla principal
-
-El mapa no es una pestaña secundaria; es la pantalla de inicio. Las unidades y el incidente activo son visibles de inmediato sin navegar.
-
-### 6.6 Timestamps automáticos
-
-Ninguna acción operativa requiere que el usuario ingrese la hora manualmente. Todos los eventos se registran con `timestamptz DEFAULT now()` del servidor para garantizar consistencia.
-
-### 6.7 Alertas con vibración y sonido
-
-Las notificaciones de despacho deben activar vibración del dispositivo y un sonido de alerta distintivo, independientemente del estado de la pantalla.
-
-### 6.8 Pantalla siempre activa en modo operacional
-
-Cuando hay un incidente activo, la app solicitará `WakeLock` para evitar que la pantalla se apague mientras el bombero está en escena.
+- **Offline-first:** el último incidente activo debe ser visible sin red (Service Worker cache)
+- **2 toques máximo:** de la notificación al mapa, máximo 2 interacciones
+- **Targets grandes:** mínimo 48×48px; botones primarios ≥ 40% del ancho
+- **Dark mode por defecto:** operaciones nocturnas son la norma
+- **Alarma siempre suena:** independiente del volumen del sistema (usar `<audio>` + notificación)
+- **Coords automáticas:** nunca pedir al usuario que ingrese ubicación manualmente
 
 ---
 
-## 7. Puntos de Integración
+## 8. Decisiones Técnicas
 
-### 7.1 bomberos24horas
-
-**Fase 1 (entrada manual):** el Jefe de Guardia ingresa los datos del despacho manualmente en la app.
-
-**Fase 2 (integración):** explorar scraping del sitio o contacto con el proveedor para obtener un feed estructurado (JSON/RSS). Los datos a capturar son: número de siniestro, tipo, dirección, hora de despacho, cuartel asignado.
-
-### 7.2 Municipalidad de San Isidro (Fase 3)
-
-- Contacto formal con la Dirección de Sistemas municipal
-- Datos objetivo: GIS del partido, base de hidrantes, datos catastrales
-- Formato esperado: API REST o archivos GeoJSON/SHP actualizados periódicamente
-- Uso: enriquecer pre-planes, mostrar hidrantes en mapa, datos del inmueble al despachar
-
----
-
-## 8. Decisiones Técnicas Pendientes
-
-| Decisión | Opciones | Estado |
+| Tema | Decisión | Motivo |
 |---|---|---|
-| Proveedor de mapas | Mapbox GL JS vs Leaflet + OSM | Pendiente — evaluar costos y offline tiles |
-| Push en iOS | Web Push en Safari 16.4+ vs fallback | Confirmar versión iOS mínima del equipo |
-| Scraping bomberos24horas | Puppeteer/Playwright vs contacto con proveedor | Fase 2 |
-| Hosting de mapas offline | Supabase Storage vs CDN | Pendiente |
-| Formato de informe PDF | react-pdf vs puppeteer/headless | Fase 2 |
+| Scraper | Cheerio (HTML) | SGO Norte es server-rendered, no SPA |
+| Mapa | Leaflet + OSM | Gratis, sin API key, tiles offline |
+| Push | Web Push VAPID | Sin app nativa; funciona en Android con browser cerrado |
+| Cron | Vercel Cron | Integrado, gratis, sin infra extra |
+| Auth | Magic link email | Sin contraseñas para usuarios no técnicos |
+| iOS Push | Requiere iOS 16.4+ y "Añadir a pantalla de inicio" | Documentar en onboarding |
 
 ---
 
-## 9. Convenciones del Proyecto
+## 9. Fases futuras (post-MVP)
 
-- **Idioma del código:** inglés (variables, funciones, esquema DB)
-- **Idioma de la UI:** español rioplatense ("vos", "guardia", "siniestro")
-- **Idioma de la documentación:** español
-- **Ramas:** `main` (producción), `develop` (integración), `feature/*`, `fix/*`
-- **Commits:** Conventional Commits en inglés (`feat:`, `fix:`, `chore:`)
-- **Tests:** Vitest + React Testing Library; cobertura mínima de lógica crítica (accountability, despacho)
+Luego de validar el MVP con la compañía:
+
+- **Protocolos y herramientas:** fichas técnicas, procedimientos, guías de rescate
+- **Historial estadístico:** dashboard de incidentes por tipo/mes/unidad
+- **Pre-planes de edificios:** planos e info de inmuebles del distrito
+- **Integración municipal:** hidrantes, datos catastrales de San Isidro
+- **Gestión de personal:** legajos, certificaciones (como plus, no indispensable)
+
+---
+
+## 10. Convenciones del Proyecto
+
+- **Código:** inglés (variables, funciones, esquema DB)
+- **UI:** español (`"Emergencia activa"`, `"Ver en mapa"`)
+- **Documentación:** español
+- **Ramas:** `main` → producción, `develop` → integración, `feature/*`
+- **Commits:** Conventional Commits (`feat:`, `fix:`, `chore:`)
 
 ---
 
 *Última actualización: marzo 2026*
-*Documento vivo — actualizar a medida que evoluciona el proyecto*
+*Documento vivo — se actualiza con el proyecto*
