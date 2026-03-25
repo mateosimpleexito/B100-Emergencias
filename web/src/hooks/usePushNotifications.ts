@@ -14,12 +14,14 @@ export function usePushNotifications(userId?: string) {
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
-    // Running inside the native APK — Web Push API not available.
-    // Push notifications are handled by FCM via @capacitor/push-notifications.
     if (isCapacitorNative()) {
-      setState('native')
+      // In native app: register FCM via Capacitor push plugin
+      initCapacitorPush().then(subscribed => {
+        setState(subscribed ? 'native' : 'pending')
+      })
       return
     }
+
     if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
       setState('unsupported')
       return
@@ -36,21 +38,70 @@ export function usePushNotifications(userId?: string) {
     })
   }, [])
 
+  // Register Capacitor FCM push — dynamically import to avoid breaking browser builds
+  async function initCapacitorPush(): Promise<boolean> {
+    try {
+      const { PushNotifications } = await import('@capacitor/push-notifications')
+
+      // Check/request permissions
+      let permStatus = await PushNotifications.checkPermissions()
+      if (permStatus.receive === 'prompt') {
+        permStatus = await PushNotifications.requestPermissions()
+      }
+      if (permStatus.receive !== 'granted') return false
+
+      // Register with FCM
+      await PushNotifications.register()
+
+      // Get the FCM token and send it to our backend
+      await new Promise<void>((resolve) => {
+        PushNotifications.addListener('registration', async (token) => {
+          try {
+            await fetch('/api/subscribe-fcm', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ token: token.value }),
+            })
+          } catch { /* ok — will retry next launch */ }
+          resolve()
+        })
+        PushNotifications.addListener('registrationError', () => resolve())
+        // Timeout safety
+        setTimeout(resolve, 5000)
+      })
+
+      // Handle incoming FCM push while app is open — play alarm
+      PushNotifications.addListener('pushNotificationReceived', (notification) => {
+        // App is in foreground — notification.data may contain incident info
+        window.dispatchEvent(new CustomEvent('b100-emergency', { detail: notification.data }))
+      })
+
+      return true
+    } catch {
+      return false
+    }
+  }
+
   async function subscribe() {
+    if (isCapacitorNative()) {
+      setLoading(true)
+      const ok = await initCapacitorPush()
+      setState(ok ? 'native' : 'denied')
+      setLoading(false)
+      return
+    }
+
     setLoading(true)
     try {
-      // Register service worker
       const reg = await navigator.serviceWorker.register('/sw.js')
       await navigator.serviceWorker.ready
 
-      // Request permission
       const permission = await Notification.requestPermission()
       if (permission !== 'granted') {
         setState('denied')
         return
       }
 
-      // Subscribe to push
       const sub = await reg.pushManager.subscribe({
         userVisibleOnly: true,
         applicationServerKey: urlBase64ToUint8Array(
@@ -58,7 +109,6 @@ export function usePushNotifications(userId?: string) {
         ),
       })
 
-      // Save subscription to server
       await fetch('/api/subscribe', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

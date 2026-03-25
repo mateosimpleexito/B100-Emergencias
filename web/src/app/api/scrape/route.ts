@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase'
 import { parseIncidentsPage, filterB100Rows } from '@/lib/parse-incident'
-import { buildIncidentPayload, sendPushToSubscription } from '@/lib/push'
+import { buildIncidentPayload, sendPushToSubscription, sendFCMToToken } from '@/lib/push'
 
 const SGO_URL = 'https://sgonorte.bomberosperu.gob.pe/24horas'
 const FETCH_TIMEOUT_MS = 15_000
@@ -80,13 +80,14 @@ export async function POST(req: NextRequest) {
           .select('endpoint, p256dh, auth')
           .eq('active', true)
 
+        const payload = buildIncidentPayload(inserted)
+
+        // Web Push (PWA subscribers)
         if (subs && subs.length > 0) {
-          const payload = buildIncidentPayload(inserted)
           const results = await Promise.allSettled(
             subs.map(async (s) => {
               const result = await sendPushToSubscription(s, payload)
               if (result.expired) {
-                // Mark expired subscription as inactive
                 await supabase
                   .from('push_subscriptions')
                   .update({ active: false })
@@ -96,7 +97,27 @@ export async function POST(req: NextRequest) {
             })
           )
           const sent = results.filter(r => r.status === 'fulfilled' && (r.value as { sent: boolean }).sent).length
-          console.log(`[scrape] Push sent: ${sent}/${subs.length}`)
+          console.log(`[scrape] Web Push sent: ${sent}/${subs.length}`)
+        }
+
+        // FCM Push (native APK subscribers)
+        const { data: fcmTokens } = await supabase
+          .from('fcm_tokens')
+          .select('token')
+          .eq('active', true)
+
+        if (fcmTokens && fcmTokens.length > 0) {
+          const fcmResults = await Promise.allSettled(
+            fcmTokens.map(async (t: { token: string }) => {
+              const result = await sendFCMToToken(t.token, payload)
+              if (result.expired) {
+                await supabase.from('fcm_tokens').update({ active: false }).eq('token', t.token)
+              }
+              return result
+            })
+          )
+          const fcmSent = fcmResults.filter(r => r.status === 'fulfilled' && (r.value as { sent: boolean }).sent).length
+          console.log(`[scrape] FCM sent: ${fcmSent}/${fcmTokens.length}`)
         }
       }
     } else if (existingStatus !== row.status) {

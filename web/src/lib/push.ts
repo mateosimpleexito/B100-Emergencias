@@ -2,6 +2,49 @@ import webpush from 'web-push'
 import type { Incident } from '@/types'
 import { B100_UNITS, unitName, alertPhrase } from '@/types'
 
+// ─── Firebase Admin (FCM) ────────────────────────────────────────────────────
+import { initializeApp, getApps, cert } from 'firebase-admin/app'
+import { getMessaging } from 'firebase-admin/messaging'
+
+function getFirebaseApp() {
+  if (getApps().length > 0) return getApps()[0]
+  const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT_JSON
+  if (!serviceAccount) return null
+  return initializeApp({ credential: cert(JSON.parse(serviceAccount)) })
+}
+
+export async function sendFCMToToken(
+  token: string,
+  payload: PushPayload
+): Promise<{ sent: boolean; expired: boolean }> {
+  try {
+    const app = getFirebaseApp()
+    if (!app) return { sent: false, expired: false }
+
+    await getMessaging(app).send({
+      token,
+      notification: { title: payload.title, body: payload.body },
+      android: {
+        priority: 'high',
+        notification: {
+          channelId: 'b100_emergency',   // matches MainActivity channel
+          sound: 'siren',                // res/raw/siren.mp3
+          vibrateTimingsMillis: [0, 400, 100, 400, 100, 400, 100, 800],
+        },
+      },
+      data: { url: payload.url, tag: payload.tag },
+    })
+    return { sent: true, expired: false }
+  } catch (err: unknown) {
+    const code = (err as { code?: string }).code
+    if (code === 'messaging/registration-token-not-registered' ||
+        code === 'messaging/invalid-registration-token') {
+      return { sent: false, expired: true }
+    }
+    return { sent: false, expired: false }
+  }
+}
+
 // Initialize VAPID once at module load
 const VAPID_EMAIL = process.env.VAPID_EMAIL
 const VAPID_PUBLIC = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY

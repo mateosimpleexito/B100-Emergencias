@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "186280159748",
+    "project_id": "b100-emergencias",
+    "storage_bucket": "b100-emergencias.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:186280159748:android:14a147c7113f7b7c60e351",
+        "android_client_info": {
+          "package_name": "pe.b100.emergencias"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyC8SP6uY7OXimjEsBQ1xMx67NFYA2oc7BY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
