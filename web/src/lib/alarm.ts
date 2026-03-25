@@ -29,6 +29,14 @@ export function initAlarm() {
   if (ctx?.state === 'suspended') {
     ctx.resume()
   }
+  // Pre-warm speech synthesis — Android needs this to load voices
+  if ('speechSynthesis' in window) {
+    window.speechSynthesis.getVoices()
+    // Speak empty string to fully initialize the engine
+    const warmup = new SpeechSynthesisUtterance('')
+    warmup.volume = 0
+    window.speechSynthesis.speak(warmup)
+  }
 }
 
 function startSiren(ctx: AudioContext, duration: number) {
@@ -69,17 +77,17 @@ function startSiren(ctx: AudioContext, duration: number) {
     const tPeak = now + t + cycleTime
     const tDown = now + t + cycleTime * 2
 
-    siren1.frequency.linearRampToValueAtTime(600, tUp)
-    siren1.frequency.linearRampToValueAtTime(1400, tPeak)
-    siren1.frequency.linearRampToValueAtTime(600, tDown)
+    siren1.frequency.linearRampToValueAtTime(350, tUp)
+    siren1.frequency.linearRampToValueAtTime(750, tPeak)
+    siren1.frequency.linearRampToValueAtTime(350, tDown)
 
-    siren2.frequency.linearRampToValueAtTime(615, tUp)
-    siren2.frequency.linearRampToValueAtTime(1415, tPeak)
-    siren2.frequency.linearRampToValueAtTime(615, tDown)
+    siren2.frequency.linearRampToValueAtTime(365, tUp)
+    siren2.frequency.linearRampToValueAtTime(765, tPeak)
+    siren2.frequency.linearRampToValueAtTime(365, tDown)
 
-    sub.frequency.linearRampToValueAtTime(80, tUp)
-    sub.frequency.linearRampToValueAtTime(120, tPeak)
-    sub.frequency.linearRampToValueAtTime(80, tDown)
+    sub.frequency.linearRampToValueAtTime(60, tUp)
+    sub.frequency.linearRampToValueAtTime(100, tPeak)
+    sub.frequency.linearRampToValueAtTime(60, tDown)
   }
 
   siren1.start(now)
@@ -118,21 +126,30 @@ function speak(text: string, onEnd?: () => void) {
   // Cancel any ongoing speech
   window.speechSynthesis.cancel()
 
-  const utterance = new SpeechSynthesisUtterance(text)
-  utterance.lang = 'es-PE'
-  utterance.rate = 0.9 // slightly slow for clarity
-  utterance.pitch = 0.8 // lower pitch for authority
-  utterance.volume = 1.0
+  // Small delay — Android Chrome needs this after cancel()
+  setTimeout(() => {
+    const utterance = new SpeechSynthesisUtterance(text)
+    utterance.lang = 'es'
+    utterance.rate = 0.85
+    utterance.pitch = 0.7 // low pitch for serious tone
+    utterance.volume = 1.0
 
-  // Try to find a Spanish voice
-  const voices = window.speechSynthesis.getVoices()
-  const esVoice = voices.find(v => v.lang.startsWith('es'))
-  if (esVoice) utterance.voice = esVoice
+    // Try to find a Spanish voice
+    const voices = window.speechSynthesis.getVoices()
+    const esVoice = voices.find(v => v.lang.startsWith('es'))
+    if (esVoice) utterance.voice = esVoice
 
-  utterance.onend = () => onEnd?.()
-  utterance.onerror = () => onEnd?.()
+    // Safety timeout — if speech doesn't end in 20s, move on
+    const safetyTimer = setTimeout(() => {
+      window.speechSynthesis.cancel()
+      onEnd?.()
+    }, 20000)
 
-  window.speechSynthesis.speak(utterance)
+    utterance.onend = () => { clearTimeout(safetyTimer); onEnd?.() }
+    utterance.onerror = () => { clearTimeout(safetyTimer); onEnd?.() }
+
+    window.speechSynthesis.speak(utterance)
+  }, 200)
 }
 
 export function playAlarm(incident?: Incident) {
