@@ -32,9 +32,13 @@ export function initAlarm() {
   // Pre-warm speech synthesis — Android needs this to load voices
   if ('speechSynthesis' in window) {
     window.speechSynthesis.getVoices()
-    // Speak empty string to fully initialize the engine
-    const warmup = new SpeechSynthesisUtterance('')
-    warmup.volume = 0
+    window.speechSynthesis.onvoiceschanged = () => {
+      window.speechSynthesis.getVoices()
+    }
+    // Speak a dot to fully initialize the TTS engine
+    const warmup = new SpeechSynthesisUtterance('.')
+    warmup.volume = 0.01
+    warmup.rate = 10
     window.speechSynthesis.speak(warmup)
   }
 }
@@ -178,6 +182,17 @@ export function playAlarm(incident?: Incident) {
   const announcement = buildAnnouncement(incident)
   let repeatCount = 0
 
+  function killSiren() {
+    for (const node of alarmNodes) {
+      try { node.stop() } catch { /* ok */ }
+    }
+    alarmNodes = []
+    if (alarmGain) {
+      try { alarmGain.gain.setValueAtTime(0, alarmGain.context.currentTime) } catch { /* ok */ }
+      alarmGain = null
+    }
+  }
+
   function cycle() {
     if (!isPlaying || repeatCount >= 3) {
       stopAlarm()
@@ -187,20 +202,17 @@ export function playAlarm(incident?: Incident) {
     // 3 seconds of siren
     startSiren(ctx!, 3)
 
-    // After siren, lower volume and speak
+    // After siren STOPS, speak
     speechTimeout = setTimeout(() => {
       if (!isPlaying) return
 
-      // Mute siren during speech
-      if (alarmGain) {
-        alarmGain.gain.setValueAtTime(0.08, ctx!.currentTime)
-      }
+      // Kill siren completely so voice can be heard
+      killSiren()
 
       speak(announcement, () => {
         repeatCount++
         if (isPlaying && repeatCount < 3) {
-          // Brief pause then next cycle
-          speechTimeout = setTimeout(cycle, 500)
+          speechTimeout = setTimeout(cycle, 300)
         } else {
           // Final siren burst
           if (isPlaying) {
