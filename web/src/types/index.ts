@@ -34,7 +34,7 @@ export interface Profile {
 }
 
 // B100 unit codes monitored for dispatch alerts
-export const B100_UNITS = ['M100-1', 'RES-100', 'AMB-100', 'AUX-100-1', 'AUX-100-2'] as const
+export const B100_UNITS = ['M100-1', 'RES-100', 'AMB-100', 'AUX-100', 'AUX100-2'] as const
 
 export type B100Unit = typeof B100_UNITS[number]
 

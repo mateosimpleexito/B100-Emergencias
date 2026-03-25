@@ -12,7 +12,7 @@ const SCRAPER_SECRET = process.env.SCRAPER_SECRET
 const POLL_INTERVAL_MS = parseInt(process.env.POLL_INTERVAL_MS ?? '3000', 10)
 const VEHICLES_INTERVAL_MS = 60_000 // Vehicle status every 60s
 
-const B100_UNITS = ['M100-1', 'RES-100', 'AMB-100', 'AUX-100-1', 'AUX-100-2']
+const B100_UNITS = ['M100-1', 'RES-100', 'AMB-100', 'AUX-100', 'AUX100-2']
 
 // Track last seen nro_partes to detect new ones without hitting the DB
 const seenNroParts = new Set()
