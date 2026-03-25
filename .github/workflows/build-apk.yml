@@ -35,7 +35,7 @@ jobs:
 
       - name: Sync Capacitor (copies config + plugins into android/)
         working-directory: web
-        run: npx cap sync android --no-build
+        run: npx cap sync android
 
       - name: Make gradlew executable
         working-directory: web/android
