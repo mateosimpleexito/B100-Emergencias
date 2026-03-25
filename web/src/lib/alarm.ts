@@ -222,11 +222,13 @@ function speakFallback(text: string, onEnd?: () => void) {
 }
 
 export function playAlarm(incident?: Incident) {
-  if (isPlaying) return
+  // Force stop any previous alarm before starting new one
+  if (isPlaying) stopAlarm()
 
   const ctx = getContext()
   if (!ctx) return
-  if (ctx.state === 'suspended') ctx.resume()
+  // Force resume — might be suspended if no recent user gesture
+  ctx.resume().catch(() => {})
 
   isPlaying = true
 
