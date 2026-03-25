@@ -235,8 +235,8 @@ export default function HomePage() {
   const [companyStatus, setCompanyStatus] = useState<CompanyStatus | null>(null)
   const [alarmActive, setAlarmActive] = useState(false)
 
-  const triggerAlarm = useCallback(() => {
-    playAlarm()
+  const triggerAlarm = useCallback((incident?: Incident) => {
+    playAlarm(incident)
     setAlarmActive(true)
   }, [])
 
@@ -297,9 +297,10 @@ export default function HomePage() {
       .channel('incidents-realtime')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'incidents' }, payload => {
         if (payload.eventType === 'INSERT') {
-          setIncidents(prev => [payload.new as Incident, ...prev])
-          // Play alarm for new incidents when app is open
-          triggerAlarm()
+          const newIncident = payload.new as Incident
+          setIncidents(prev => [newIncident, ...prev])
+          // Play alarm with voice announcement for new incidents
+          triggerAlarm(newIncident)
         } else if (payload.eventType === 'UPDATE') {
           setIncidents(prev =>
             prev.map(i => i.id === (payload.new as Incident).id ? payload.new as Incident : i)

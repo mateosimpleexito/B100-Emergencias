@@ -1,12 +1,16 @@
 'use client'
 
-// Emergency alarm — loud two-tone siren using Web Audio API
+import type { Incident } from '@/types'
+import { unitName, alertPhrase, B100_UNITS } from '@/types'
+
+// Emergency alarm — loud siren + voice announcement
 // Designed to wake up firefighters. MAX VOLUME.
 
 let audioContext: AudioContext | null = null
 let alarmNodes: OscillatorNode[] = []
 let alarmGain: GainNode | null = null
 let alarmTimeout: ReturnType<typeof setTimeout> | null = null
+let speechTimeout: ReturnType<typeof setTimeout> | null = null
 let isPlaying = false
 
 function getContext(): AudioContext | null {
@@ -20,7 +24,6 @@ function getContext(): AudioContext | null {
   return audioContext
 }
 
-// Must be called after a user gesture to unlock audio
 export function initAlarm() {
   const ctx = getContext()
   if (ctx?.state === 'suspended') {
@@ -28,79 +31,55 @@ export function initAlarm() {
   }
 }
 
-export function playAlarm() {
-  if (isPlaying) return
+function startSiren(ctx: AudioContext, duration: number) {
+  const now = ctx.currentTime
 
-  const ctx = getContext()
-  if (!ctx) return
-
-  if (ctx.state === 'suspended') {
-    ctx.resume()
-  }
-
-  isPlaying = true
-
-  // Master gain at MAX
   const master = ctx.createGain()
-  master.gain.setValueAtTime(1.0, ctx.currentTime)
+  master.gain.setValueAtTime(1.0, now)
   master.connect(ctx.destination)
   alarmGain = master
 
-  // SIREN: two oscillators sweeping between low and high freq
-  // Creates the classic fire truck siren effect
-  const now = ctx.currentTime
-  const duration = 30 // 30 seconds of alarm
-
-  // Main siren oscillator — sawtooth for harsh, cutting sound
+  // Main siren — sawtooth for harsh sound
   const siren1 = ctx.createOscillator()
   siren1.type = 'sawtooth'
-  const siren1Gain = ctx.createGain()
-  siren1Gain.gain.setValueAtTime(0.5, now)
-  siren1.connect(siren1Gain)
-  siren1Gain.connect(master)
+  const s1g = ctx.createGain()
+  s1g.gain.setValueAtTime(0.5, now)
+  siren1.connect(s1g)
+  s1g.connect(master)
 
-  // Second oscillator — slightly detuned for thickness
+  // Detuned siren for thickness
   const siren2 = ctx.createOscillator()
   siren2.type = 'square'
-  const siren2Gain = ctx.createGain()
-  siren2Gain.gain.setValueAtTime(0.35, now)
-  siren2.connect(siren2Gain)
-  siren2Gain.connect(master)
+  const s2g = ctx.createGain()
+  s2g.gain.setValueAtTime(0.35, now)
+  siren2.connect(s2g)
+  s2g.connect(master)
 
-  // Sub bass hit for physical impact
+  // Sub bass
   const sub = ctx.createOscillator()
   sub.type = 'sine'
-  const subGain = ctx.createGain()
-  subGain.gain.setValueAtTime(0.4, now)
-  sub.connect(subGain)
-  subGain.connect(master)
+  const subg = ctx.createGain()
+  subg.gain.setValueAtTime(0.4, now)
+  sub.connect(subg)
+  subg.connect(master)
 
-  // Program the siren sweep — 0.8s up, 0.8s down, repeat
   const cycleTime = 0.8
-  const lowFreq = 600
-  const highFreq = 1400
-  const subLow = 80
-  const subHigh = 120
-
   for (let t = 0; t < duration; t += cycleTime * 2) {
     const tUp = now + t
     const tPeak = now + t + cycleTime
     const tDown = now + t + cycleTime * 2
 
-    // Main siren sweep
-    siren1.frequency.linearRampToValueAtTime(lowFreq, tUp)
-    siren1.frequency.linearRampToValueAtTime(highFreq, tPeak)
-    siren1.frequency.linearRampToValueAtTime(lowFreq, tDown)
+    siren1.frequency.linearRampToValueAtTime(600, tUp)
+    siren1.frequency.linearRampToValueAtTime(1400, tPeak)
+    siren1.frequency.linearRampToValueAtTime(600, tDown)
 
-    // Detuned siren (offset by 15Hz for beating effect)
-    siren2.frequency.linearRampToValueAtTime(lowFreq + 15, tUp)
-    siren2.frequency.linearRampToValueAtTime(highFreq + 15, tPeak)
-    siren2.frequency.linearRampToValueAtTime(lowFreq + 15, tDown)
+    siren2.frequency.linearRampToValueAtTime(615, tUp)
+    siren2.frequency.linearRampToValueAtTime(1415, tPeak)
+    siren2.frequency.linearRampToValueAtTime(615, tDown)
 
-    // Sub bass pulse
-    sub.frequency.linearRampToValueAtTime(subLow, tUp)
-    sub.frequency.linearRampToValueAtTime(subHigh, tPeak)
-    sub.frequency.linearRampToValueAtTime(subLow, tDown)
+    sub.frequency.linearRampToValueAtTime(80, tUp)
+    sub.frequency.linearRampToValueAtTime(120, tPeak)
+    sub.frequency.linearRampToValueAtTime(80, tDown)
   }
 
   siren1.start(now)
@@ -110,20 +89,113 @@ export function playAlarm() {
   siren2.stop(now + duration)
   sub.stop(now + duration)
 
-  alarmNodes = [siren1, siren2, sub]
+  alarmNodes.push(siren1, siren2, sub)
+}
 
-  // Auto-stop after duration
-  alarmTimeout = setTimeout(() => { stopAlarm() }, duration * 1000)
+function buildAnnouncement(incident: Incident): string {
+  const alert = alertPhrase(incident.type)
+  const b100 = incident.units
+    .filter(u => (B100_UNITS as readonly string[]).includes(u))
+    .map(u => `Sale ${unitName(u)}`)
+    .join('. ')
+  const address = incident.address
+    .replace(/\s+/g, ' ')
+    .replace(/CL\./gi, 'Calle')
+    .replace(/AV\./gi, 'Avenida')
+    .replace(/JR\./gi, 'Jirón')
+    .replace(/NRO\./gi, 'Número')
+    .replace(/Nro\./gi, 'Número')
 
-  // HEAVY vibration — continuous aggressive pattern for 30 seconds
-  if ('vibrate' in navigator) {
-    // 400ms on, 100ms off — relentless buzzing
-    const vibratePattern: number[] = []
-    for (let i = 0; i < 60; i++) {
-      vibratePattern.push(400, 100)
-    }
-    navigator.vibrate(vibratePattern)
+  return `Atención Compañía 100. ${alert}. ${b100}. Dirección: ${address}.`
+}
+
+function speak(text: string, onEnd?: () => void) {
+  if (!('speechSynthesis' in window)) {
+    onEnd?.()
+    return
   }
+
+  // Cancel any ongoing speech
+  window.speechSynthesis.cancel()
+
+  const utterance = new SpeechSynthesisUtterance(text)
+  utterance.lang = 'es-PE'
+  utterance.rate = 0.9 // slightly slow for clarity
+  utterance.pitch = 0.8 // lower pitch for authority
+  utterance.volume = 1.0
+
+  // Try to find a Spanish voice
+  const voices = window.speechSynthesis.getVoices()
+  const esVoice = voices.find(v => v.lang.startsWith('es'))
+  if (esVoice) utterance.voice = esVoice
+
+  utterance.onend = () => onEnd?.()
+  utterance.onerror = () => onEnd?.()
+
+  window.speechSynthesis.speak(utterance)
+}
+
+export function playAlarm(incident?: Incident) {
+  if (isPlaying) return
+
+  const ctx = getContext()
+  if (!ctx) return
+  if (ctx.state === 'suspended') ctx.resume()
+
+  isPlaying = true
+
+  // Heavy vibration
+  if ('vibrate' in navigator) {
+    const pattern: number[] = []
+    for (let i = 0; i < 60; i++) pattern.push(400, 100)
+    navigator.vibrate(pattern)
+  }
+
+  if (!incident) {
+    // No incident data — just play siren for 30s
+    startSiren(ctx, 30)
+    alarmTimeout = setTimeout(() => stopAlarm(), 30000)
+    return
+  }
+
+  const announcement = buildAnnouncement(incident)
+  let repeatCount = 0
+
+  function cycle() {
+    if (!isPlaying || repeatCount >= 3) {
+      stopAlarm()
+      return
+    }
+
+    // 3 seconds of siren
+    startSiren(ctx!, 3)
+
+    // After siren, lower volume and speak
+    speechTimeout = setTimeout(() => {
+      if (!isPlaying) return
+
+      // Mute siren during speech
+      if (alarmGain) {
+        alarmGain.gain.setValueAtTime(0.08, ctx!.currentTime)
+      }
+
+      speak(announcement, () => {
+        repeatCount++
+        if (isPlaying && repeatCount < 3) {
+          // Brief pause then next cycle
+          speechTimeout = setTimeout(cycle, 500)
+        } else {
+          // Final siren burst
+          if (isPlaying) {
+            startSiren(ctx!, 5)
+            alarmTimeout = setTimeout(() => stopAlarm(), 5000)
+          }
+        }
+      })
+    }, 3000)
+  }
+
+  cycle()
 }
 
 export function stopAlarm() {
@@ -139,9 +211,11 @@ export function stopAlarm() {
     alarmGain = null
   }
 
-  if (alarmTimeout) {
-    clearTimeout(alarmTimeout)
-    alarmTimeout = null
+  if (alarmTimeout) { clearTimeout(alarmTimeout); alarmTimeout = null }
+  if (speechTimeout) { clearTimeout(speechTimeout); speechTimeout = null }
+
+  if ('speechSynthesis' in window) {
+    window.speechSynthesis.cancel()
   }
 
   if ('vibrate' in navigator) {
