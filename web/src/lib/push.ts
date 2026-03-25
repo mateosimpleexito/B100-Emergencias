@@ -53,7 +53,7 @@ export async function sendPushToSubscription(
         keys: { p256dh: subscription.p256dh, auth: subscription.auth },
       },
       JSON.stringify(payload),
-      { TTL: 14400 } // 4 hours — emergency alerts must survive offline periods
+      { TTL: 14400, urgency: 'high' as const } // 4 hours, high priority wakes Android from Doze
     )
     return { sent: true, expired: false }
   } catch (err: unknown) {

@@ -1,9 +1,10 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { usePushNotifications } from '@/hooks/usePushNotifications'
+import { initAlarm, playAlarm, stopAlarm } from '@/lib/alarm'
 import type { Incident, CompanyStatus, VehicleStatusCode } from '@/types'
 import { B100_UNITS } from '@/types'
 
@@ -220,11 +221,38 @@ export default function HomePage() {
   const [incidents, setIncidents] = useState<Incident[]>([])
   const [loading, setLoading] = useState(true)
   const [companyStatus, setCompanyStatus] = useState<CompanyStatus | null>(null)
+  const [alarmActive, setAlarmActive] = useState(false)
+
+  const triggerAlarm = useCallback(() => {
+    playAlarm()
+    setAlarmActive(true)
+  }, [])
+
+  const dismissAlarm = useCallback(() => {
+    stopAlarm()
+    setAlarmActive(false)
+  }, [])
 
   useEffect(() => {
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('/sw.js').catch(console.error)
+
+      // Listen for emergency alarm from service worker push
+      navigator.serviceWorker.addEventListener('message', (event) => {
+        if (event.data?.type === 'EMERGENCY_ALARM') {
+          triggerAlarm()
+        }
+      })
     }
+
+    // Init audio context on first user interaction
+    const unlock = () => {
+      initAlarm()
+      document.removeEventListener('click', unlock)
+      document.removeEventListener('touchstart', unlock)
+    }
+    document.addEventListener('click', unlock, { once: true })
+    document.addEventListener('touchstart', unlock, { once: true })
 
     // Fetch incidents
     Promise.resolve(
@@ -258,6 +286,8 @@ export default function HomePage() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'incidents' }, payload => {
         if (payload.eventType === 'INSERT') {
           setIncidents(prev => [payload.new as Incident, ...prev])
+          // Play alarm for new incidents when app is open
+          triggerAlarm()
         } else if (payload.eventType === 'UPDATE') {
           setIncidents(prev =>
             prev.map(i => i.id === (payload.new as Incident).id ? payload.new as Incident : i)
@@ -277,7 +307,9 @@ export default function HomePage() {
     return () => {
       supabase.removeChannel(incidentsChannel)
       supabase.removeChannel(statusChannel)
+      stopAlarm()
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const active = incidents.filter(i => i.status === 'ATENDIENDO')
@@ -285,6 +317,21 @@ export default function HomePage() {
 
   return (
     <main className="max-w-lg mx-auto px-4 py-6">
+      {/* Alarm banner — shows when siren is active */}
+      {alarmActive && (
+        <div className="fixed inset-x-0 top-0 z-50 bg-red-600 animate-pulse">
+          <div className="max-w-lg mx-auto px-4 py-3 flex items-center justify-between">
+            <span className="text-white font-bold text-sm">🚨 EMERGENCIA B100</span>
+            <button
+              onClick={dismissAlarm}
+              className="bg-white/20 text-white text-xs font-bold px-4 py-1.5 rounded-full active:bg-white/30"
+            >
+              SILENCIAR
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="flex items-center gap-3 mb-6">
         <div className="w-10 h-10 rounded-full bg-red-600 flex items-center justify-center text-xl">
           🚒

@@ -48,7 +48,14 @@ self.addEventListener('push', event => {
   const { title, body, url, tag, icon } = payload
 
   event.waitUntil(
-    self.registration.showNotification(title, {
+    // Alert any open app window to play loud alarm sound
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true })
+      .then(clients => {
+        clients.forEach(client => {
+          client.postMessage({ type: 'EMERGENCY_ALARM', payload })
+        })
+      })
+      .then(() => self.registration.showNotification(title, {
       body,
       icon: icon || '/icons/icon-192.png',
       badge: '/icons/badge-72.png',
@@ -62,7 +69,7 @@ self.addEventListener('push', event => {
         { action: 'open', title: 'Ver emergencia' },
         { action: 'dismiss', title: 'Cerrar' },
       ],
-    })
+    }))
   )
 })
 
