@@ -25,7 +25,10 @@ export function parseDate(raw: string): string | null {
   let h = parseInt(hour)
   if (ampm.toUpperCase() === 'PM' && h < 12) h += 12
   if (ampm.toUpperCase() === 'AM' && h === 12) h = 0
-  const date = new Date(Date.UTC(parseInt(year), parseInt(month) - 1, parseInt(day), h, parseInt(min), parseInt(sec)))
+  // SGO Norte times are in Peru time (UTC-5) — store with correct offset
+  const pad = (n: number) => n.toString().padStart(2, '0')
+  const iso = `${year}-${month}-${day}T${pad(h)}:${min}:${sec}-05:00`
+  const date = new Date(iso)
   if (isNaN(date.getTime())) return null
   return date.toISOString()
 }

@@ -38,7 +38,9 @@ function formatDate(iso: string) {
 
 function IncidentCard({ incident }: { incident: Incident }) {
   const isActive = incident.status === 'ATENDIENDO'
-  const typeShort = incident.type.split('/')[0].trim()
+  const typeParts = incident.type.split('/').map(s => s.trim())
+  const typeCategory = typeParts[0] // RESCATE, INCENDIO, etc.
+  const typeDetail = typeParts.slice(1).join(' / ') // ANIMALES / RESCATE ANIMAL
 
   return (
     <Link href={`/incidents/${incident.nro_parte}`}>
@@ -49,9 +51,14 @@ function IncidentCard({ incident }: { incident: Incident }) {
         }`}>
 
         <div className="flex items-start justify-between gap-2 mb-2">
-          <span className={`text-xs font-bold px-2 py-0.5 rounded-full uppercase ${getTypeColor(incident.type)}`}>
-            {typeShort}
-          </span>
+          <div className="flex flex-col gap-0.5">
+            <span className={`text-xs font-bold px-2 py-0.5 rounded-full uppercase w-fit ${getTypeColor(incident.type)}`}>
+              {typeCategory}
+            </span>
+            {typeDetail && (
+              <span className="text-xs text-zinc-400 px-2">{typeDetail}</span>
+            )}
+          </div>
           <div className="text-right">
             {isActive ? (
               <span className="flex items-center gap-1 text-red-400 text-xs font-semibold">
