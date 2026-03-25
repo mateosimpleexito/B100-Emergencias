@@ -7,8 +7,10 @@
 
 const SGO_URL = 'https://sgonorte.bomberosperu.gob.pe/24horas'
 const API_URL = process.env.APP_URL + '/api/scrape'
+const VEHICLES_API_URL = process.env.APP_URL + '/api/scrape-vehicles'
 const SCRAPER_SECRET = process.env.SCRAPER_SECRET
 const POLL_INTERVAL_MS = parseInt(process.env.POLL_INTERVAL_MS ?? '3000', 10)
+const VEHICLES_INTERVAL_MS = 60_000 // Vehicle status every 60s
 
 const B100_UNITS = ['M100-1', 'RES-100', 'AMB-100', 'AUX-100-1', 'AUX-100-2']
 
@@ -83,8 +85,26 @@ async function poll() {
   }
 }
 
+async function pollVehicles() {
+  try {
+    const res = await fetch(VEHICLES_API_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-scraper-secret': SCRAPER_SECRET,
+      },
+    })
+    const data = await res.json()
+    if (data.vehicles) {
+      console.log(`[B100] 🚒 Vehículos actualizados: ${data.vehicles} unidades, ${data.pilots} pilotos, ${data.personnel} personal`)
+    }
+  } catch (err) {
+    console.error('[B100] Vehicle poll error:', err.message)
+  }
+}
+
 async function run() {
-  console.log(`[B100] Scraper iniciado — polling cada ${POLL_INTERVAL_MS}ms`)
+  console.log(`[B100] Scraper iniciado — incidentes cada ${POLL_INTERVAL_MS}ms, vehículos cada ${VEHICLES_INTERVAL_MS}ms`)
   console.log(`[B100] Monitoreando unidades: ${B100_UNITS.join(', ')}`)
   console.log(`[B100] Fuente: ${SGO_URL}`)
 
@@ -95,6 +115,10 @@ async function run() {
   // Poll immediately, then on interval
   await poll()
   setInterval(poll, POLL_INTERVAL_MS)
+
+  // Vehicle status — poll every 60s
+  await pollVehicles()
+  setInterval(pollVehicles, VEHICLES_INTERVAL_MS)
 }
 
 run().catch(err => {
