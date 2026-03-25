@@ -6,7 +6,7 @@ import { supabase } from '@/lib/supabase'
 import { usePushNotifications } from '@/hooks/usePushNotifications'
 import { initAlarm, playAlarm, stopAlarm } from '@/lib/alarm'
 import type { Incident, CompanyStatus, VehicleStatusCode } from '@/types'
-import { B100_UNITS } from '@/types'
+import { B100_UNITS, unitName, alertPhrase } from '@/types'
 
 const TYPE_COLORS: Record<string, string> = {
   INCENDIO: 'bg-red-600',
@@ -101,16 +101,16 @@ function IncidentCard({ incident }: { incident: Incident }) {
           <p className="text-xs text-zinc-400 mb-2">{incident.district}</p>
         )}
 
-        <div className="flex flex-wrap gap-1 mb-2">
-          {incident.units.map(u => (
-            <span key={u} className={`text-xs px-2 py-0.5 rounded font-mono font-semibold
-              ${(B100_UNITS as readonly string[]).includes(u)
-                ? 'bg-red-700 text-white'
-                : 'bg-zinc-700 text-zinc-300'
-              }`}>
-              {u}
-            </span>
-          ))}
+        <div className="flex flex-wrap gap-1.5 mb-2">
+          {incident.units.map(u => {
+            const isB100 = (B100_UNITS as readonly string[]).includes(u)
+            return (
+              <span key={u} className={`text-xs px-2 py-1 rounded font-bold
+                ${isB100 ? 'bg-red-700 text-white' : 'bg-zinc-700 text-zinc-300'}`}>
+                {unitName(u)}
+              </span>
+            )
+          })}
         </div>
 
         <div className="flex items-center justify-between">
@@ -330,19 +330,30 @@ export default function HomePage() {
   return (
     <main className="max-w-lg mx-auto px-4 py-6">
       {/* Alarm banner — shows when siren is active */}
-      {alarmActive && (
-        <div className="fixed inset-x-0 top-0 z-50 bg-red-600 animate-pulse">
-          <div className="max-w-lg mx-auto px-4 py-3 flex items-center justify-between">
-            <span className="text-white font-bold text-sm">🚨 EMERGENCIA B100</span>
-            <button
-              onClick={dismissAlarm}
-              className="bg-white/20 text-white text-xs font-bold px-4 py-1.5 rounded-full active:bg-white/30"
-            >
-              SILENCIAR
-            </button>
+      {alarmActive && active.length > 0 && (() => {
+        const latest = active[0]
+        const alert = alertPhrase(latest.type)
+        const units = latest.units
+          .filter(u => (B100_UNITS as readonly string[]).includes(u))
+          .map(u => unitName(u))
+        return (
+          <div className="fixed inset-x-0 top-0 z-50 bg-red-600 animate-pulse">
+            <div className="max-w-lg mx-auto px-4 py-3">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-white font-black text-base">🚨 {alert}</span>
+                <button
+                  onClick={dismissAlarm}
+                  className="bg-white/20 text-white text-xs font-bold px-4 py-1.5 rounded-full active:bg-white/30 shrink-0"
+                >
+                  SILENCIAR
+                </button>
+              </div>
+              <p className="text-white/90 text-sm font-bold">{units.join(' | ')}</p>
+              <p className="text-white/70 text-xs">{latest.address}</p>
+            </div>
           </div>
-        </div>
-      )}
+        )
+      })()}
 
       <div className="flex items-center gap-3 mb-6">
         <div className="w-10 h-10 rounded-full bg-red-600 flex items-center justify-center text-xl">

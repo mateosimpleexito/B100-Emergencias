@@ -1,5 +1,6 @@
 import webpush from 'web-push'
 import type { Incident } from '@/types'
+import { B100_UNITS, unitName, alertPhrase } from '@/types'
 
 // Initialize VAPID once at module load
 const VAPID_EMAIL = process.env.VAPID_EMAIL
@@ -25,15 +26,15 @@ export interface PushPayload {
 }
 
 export function buildIncidentPayload(incident: Incident): PushPayload {
-  const unitList = incident.units.join(' · ')
-  const parts = incident.type.split('/').map((s: string) => s.trim())
-  const category = parts[0] // RESCATE, INCENDIO, etc.
-  // Detail: most specific parts, title-cased for readability
-  const detail = parts.slice(1).map((p: string) => p.charAt(0) + p.slice(1).toLowerCase()).join(' · ')
+  const alert = alertPhrase(incident.type)
+  const unitNames = incident.units.map(u => unitName(u))
+  const b100Units = unitNames.filter((_, i) =>
+    (B100_UNITS as readonly string[]).includes(incident.units[i])
+  )
 
   return {
-    title: `🚨 ${category}${detail ? ` — ${detail}` : ''} — B100`,
-    body: `📍 ${incident.address}${incident.district ? `, ${incident.district}` : ''}\n🚒 ${unitList}`,
+    title: `🚨 ${alert}`,
+    body: `🚒 ${b100Units.join(' | ')}\n📍 ${incident.address}${incident.district ? `, ${incident.district}` : ''}`,
     url: `/incidents/${incident.nro_parte}`,
     tag: incident.nro_parte,
     icon: '/icons/icon-192.png',
