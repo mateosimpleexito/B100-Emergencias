@@ -21,6 +21,10 @@ let alarmTimeout: ReturnType<typeof setTimeout> | null = null
 let speechTimeout: ReturnType<typeof setTimeout> | null = null
 let isPlaying = false
 let currentSpeechSource: AudioBufferSourceNode | null = null
+// Silent oscillator that keeps AudioContext alive between siren and voice.
+// Without this, Chrome/Android suspends the context the moment audio stops,
+// causing source.start() to fire into a suspended context → silence.
+let keepAliveNode: OscillatorNode | null = null
 
 // Cache decoded audio buffers to avoid re-fetching the same announcement
 const ttsCache = new Map<string, AudioBuffer>()
@@ -104,6 +108,24 @@ function startSiren(ctx: AudioContext, duration: number) {
   alarmNodes.push(siren1, siren2, sub)
 }
 
+function startKeepAlive(ctx: AudioContext) {
+  if (keepAliveNode) return
+  const osc = ctx.createOscillator()
+  const gain = ctx.createGain()
+  gain.gain.setValueAtTime(0.0001, ctx.currentTime) // inaudible but keeps context running
+  osc.connect(gain)
+  gain.connect(ctx.destination)
+  osc.start()
+  keepAliveNode = osc
+}
+
+function stopKeepAlive() {
+  if (keepAliveNode) {
+    try { keepAliveNode.stop() } catch { /* ok */ }
+    keepAliveNode = null
+  }
+}
+
 function buildAnnouncement(incident: Incident): string {
   const alert = alertPhrase(incident.type)
   const b100 = incident.units
@@ -182,6 +204,9 @@ async function speak(ctx: AudioContext, text: string, onEnd?: () => void) {
   try {
     const audioBuffer = await fetchTTSAudio(ctx, text)
     if (!isPlaying) { onEnd?.(); return }
+    // Resume context — Android suspends it the instant audio stops.
+    // Must await so the context is actually running before source.start().
+    await ctx.resume()
     playAudioBuffer(ctx, audioBuffer, onEnd)
   } catch (err) {
     console.warn('Server TTS failed, trying speechSynthesis fallback:', err)
@@ -231,6 +256,9 @@ export function playAlarm(incident?: Incident) {
   ctx.resume().catch(() => {})
 
   isPlaying = true
+
+  // Keep AudioContext alive so the context doesn't suspend between siren and voice
+  startKeepAlive(ctx)
 
   // Heavy vibration
   if ('vibrate' in navigator) {
@@ -299,6 +327,7 @@ export function playAlarm(incident?: Incident) {
 
 export function stopAlarm() {
   isPlaying = false
+  stopKeepAlive()
 
   for (const node of alarmNodes) {
     try { node.stop() } catch { /* already stopped */ }
