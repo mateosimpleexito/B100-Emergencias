@@ -257,14 +257,11 @@ export default function HomePage() {
       })
     }
 
-    // Init audio context on first user interaction
-    const unlock = () => {
-      initAlarm()
-      document.removeEventListener('click', unlock)
-      document.removeEventListener('touchstart', unlock)
-    }
-    document.addEventListener('click', unlock, { once: true })
-    document.addEventListener('touchstart', unlock, { once: true })
+    // Try to init AudioContext immediately (works for installed PWAs).
+    // Also re-init on first touch as fallback for browser tabs.
+    initAlarm()
+    document.addEventListener('click', initAlarm, { once: true })
+    document.addEventListener('touchstart', initAlarm, { once: true })
 
     // Fetch incidents
     Promise.resolve(

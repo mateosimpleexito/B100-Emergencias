@@ -41,9 +41,12 @@ function getContext(): AudioContext | null {
 }
 
 export function initAlarm() {
+  // Create AudioContext and try to resume it. On installed PWAs, Chrome/Brave
+  // allow this without a user gesture after the first session interaction.
+  // Called both on page load AND on first user touch, so one of them will work.
   const ctx = getContext()
-  if (ctx?.state === 'suspended') {
-    ctx.resume()
+  if (ctx && ctx.state !== 'running') {
+    ctx.resume().catch(() => {})
   }
 }
 
@@ -252,13 +255,24 @@ export function playAlarm(incident?: Incident) {
 
   const ctx = getContext()
   if (!ctx) return
-  // Force resume — might be suspended if no recent user gesture
-  ctx.resume().catch(() => {})
 
   isPlaying = true
 
-  // Keep AudioContext alive so the context doesn't suspend between siren and voice
-  startKeepAlive(ctx)
+  // Resume context then start alarm. Must await — on Android the context
+  // is suspended after page load and audio won't play until it's running.
+  ctx.resume().then(() => {
+    if (!isPlaying) return // stopped while we waited
+    startKeepAlive(ctx)
+    _startAlarm(ctx, incident)
+  }).catch(() => {
+    // resume() rejected — browser blocked autoplay (no user gesture, not installed PWA).
+    // Try anyway in case the browser allows it after all.
+    startKeepAlive(ctx)
+    _startAlarm(ctx, incident)
+  })
+}
+
+function _startAlarm(ctx: AudioContext, incident?: Incident) {
 
   // Heavy vibration
   if ('vibrate' in navigator) {
