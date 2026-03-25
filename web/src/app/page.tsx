@@ -159,15 +159,19 @@ export default function HomePage() {
       navigator.serviceWorker.register('/sw.js').catch(console.error)
     }
 
-    supabase
-      .from('incidents')
-      .select('*')
-      .order('dispatched_at', { ascending: false })
-      .limit(30)
-      .then(({ data }) => {
-        setIncidents(data ?? [])
-        setLoading(false)
-      })
+    Promise.resolve(
+      supabase
+        .from('incidents')
+        .select('*')
+        .order('dispatched_at', { ascending: false })
+        .limit(30)
+    ).then(({ data }) => {
+      setIncidents(data ?? [])
+      setLoading(false)
+    }).catch((err) => {
+      console.error('Failed to load incidents:', err)
+      setLoading(false)
+    })
 
     const channel = supabase
       .channel('incidents-realtime')
