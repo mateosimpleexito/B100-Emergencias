@@ -1,8 +1,8 @@
 // B100 Service Worker
 // Handles push notifications and offline caching
 
-const CACHE_NAME = 'b100-v1'
-const OFFLINE_URLS = ['/', '/incidents']
+const CACHE_NAME = 'b100-v2'
+const OFFLINE_URLS = ['/']
 
 // ─── Install: cache offline pages ───────────────────────────────────────────
 self.addEventListener('install', event => {
@@ -28,7 +28,9 @@ self.addEventListener('fetch', event => {
 
   event.respondWith(
     fetch(event.request).catch(() =>
-      caches.match(event.request).then(r => r || caches.match('/'))
+      caches.match(event.request)
+        .then(r => r || caches.match('/'))
+        .then(r => r || new Response('Offline', { status: 503, headers: { 'Content-Type': 'text/plain' } }))
     )
   )
 })
