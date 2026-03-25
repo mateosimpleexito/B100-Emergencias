@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { usePushNotifications } from '@/hooks/usePushNotifications'
-import type { Incident } from '@/types'
+import type { Incident, CompanyStatus, VehicleStatusCode } from '@/types'
 import { B100_UNITS } from '@/types'
 
 const TYPE_COLORS: Record<string, string> = {
@@ -94,6 +94,55 @@ function IncidentCard({ incident }: { incident: Incident }) {
   )
 }
 
+const STATUS_CONFIG: Record<VehicleStatusCode, { color: string; dot: string; label: string }> = {
+  disponible: { color: 'text-green-400', dot: 'bg-green-500', label: 'Disponible' },
+  en_emergencia: { color: 'text-yellow-400', dot: 'bg-yellow-500', label: 'En emergencia' },
+  no_disponible: { color: 'text-red-400', dot: 'bg-red-500', label: 'No disponible' },
+  en_taller: { color: 'text-zinc-400', dot: 'bg-zinc-500', label: 'En taller' },
+}
+
+function CompanyStatusPanel({ status }: { status: CompanyStatus | null }) {
+  if (!status) {
+    return (
+      <div className="rounded-xl border border-zinc-700 bg-zinc-900/50 p-4 text-center text-zinc-500 text-sm">
+        Cargando estado de unidades...
+      </div>
+    )
+  }
+
+  const updatedAgo = Math.round((Date.now() - new Date(status.updated_at).getTime()) / 60000)
+
+  return (
+    <div className="rounded-xl border border-zinc-700 bg-zinc-900/50 p-4">
+      <div className="flex items-center justify-between mb-3">
+        <h2 className="text-sm font-semibold text-zinc-200">Estado B-100</h2>
+        <span className="text-xs text-zinc-500">
+          {updatedAgo < 2 ? 'ahora' : `hace ${updatedAgo} min`}
+        </span>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2 mb-3">
+        {status.vehicles.map(v => {
+          const cfg = STATUS_CONFIG[v.status]
+          return (
+            <div key={v.code} className="flex items-center gap-2 text-sm">
+              <span className={`w-2 h-2 rounded-full shrink-0 ${cfg.dot} ${v.status === 'en_emergencia' ? 'animate-pulse' : ''}`} />
+              <span className="font-mono font-semibold text-zinc-100 text-xs">{v.code}</span>
+              <span className={`text-xs ${cfg.color}`}>{cfg.label}</span>
+            </div>
+          )
+        })}
+      </div>
+
+      <div className="flex gap-4 pt-2 border-t border-zinc-800 text-xs text-zinc-400">
+        <span>{status.pilots} piloto{status.pilots !== 1 ? 's' : ''}</span>
+        <span>{status.paramedics} param.</span>
+        <span>{status.personnel} personal</span>
+      </div>
+    </div>
+  )
+}
+
 function AlarmButton() {
   const { state, loading, subscribe, unsubscribe } = usePushNotifications()
 
@@ -153,12 +202,14 @@ function AlarmButton() {
 export default function HomePage() {
   const [incidents, setIncidents] = useState<Incident[]>([])
   const [loading, setLoading] = useState(true)
+  const [companyStatus, setCompanyStatus] = useState<CompanyStatus | null>(null)
 
   useEffect(() => {
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('/sw.js').catch(console.error)
     }
 
+    // Fetch incidents
     Promise.resolve(
       supabase
         .from('incidents')
@@ -173,7 +224,19 @@ export default function HomePage() {
       setLoading(false)
     })
 
-    const channel = supabase
+    // Fetch company status
+    Promise.resolve(
+      supabase
+        .from('company_status')
+        .select('*')
+        .eq('id', 'B-100')
+        .single()
+    ).then(({ data }) => {
+      if (data) setCompanyStatus(data as CompanyStatus)
+    }).catch(() => {})
+
+    // Realtime: incidents
+    const incidentsChannel = supabase
       .channel('incidents-realtime')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'incidents' }, payload => {
         if (payload.eventType === 'INSERT') {
@@ -186,7 +249,18 @@ export default function HomePage() {
       })
       .subscribe()
 
-    return () => { supabase.removeChannel(channel) }
+    // Realtime: company status
+    const statusChannel = supabase
+      .channel('company-status-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'company_status' }, payload => {
+        if (payload.new) setCompanyStatus(payload.new as CompanyStatus)
+      })
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(incidentsChannel)
+      supabase.removeChannel(statusChannel)
+    }
   }, [])
 
   const active = incidents.filter(i => i.status === 'ATENDIENDO')
@@ -206,6 +280,10 @@ export default function HomePage() {
 
       <div className="mb-6">
         <AlarmButton />
+      </div>
+
+      <div className="mb-6">
+        <CompanyStatusPanel status={companyStatus} />
       </div>
 
       {active.length > 0 && (

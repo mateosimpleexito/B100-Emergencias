@@ -86,3 +86,18 @@ export async function POST(req: NextRequest) {
 
   return NextResponse.json({ new: newCount, updated: updatedCount })
 }
+
+// Support GET for Vercel Cron
+export async function GET(req: NextRequest) {
+  const secret = req.headers.get('authorization')
+  if (secret !== `Bearer ${process.env.CRON_SECRET}`) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
+  // Re-use POST logic with a fake secret header
+  const fakeReq = new NextRequest(req.url, {
+    method: 'POST',
+    headers: { 'x-scraper-secret': process.env.SCRAPER_SECRET ?? '' },
+  })
+  return POST(fakeReq)
+}

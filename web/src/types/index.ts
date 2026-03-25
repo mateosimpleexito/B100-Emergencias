@@ -37,3 +37,20 @@ export interface Profile {
 export const B100_UNITS = ['M100-1', 'RES-100', 'AMB-100', 'AUX-100-1', 'AUX-100-2'] as const
 
 export type B100Unit = typeof B100_UNITS[number]
+
+// Vehicle status from SGO CEEM
+export type VehicleStatusCode = 'disponible' | 'no_disponible' | 'en_emergencia' | 'en_taller'
+
+export interface VehicleEntry {
+  code: string           // "M100-1", "RES-100", etc.
+  status: VehicleStatusCode
+}
+
+export interface CompanyStatus {
+  id: string             // "B-100"
+  vehicles: VehicleEntry[]
+  pilots: number
+  paramedics: number
+  personnel: number
+  updated_at: string
+}
