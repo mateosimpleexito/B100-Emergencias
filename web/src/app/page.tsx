@@ -37,11 +37,23 @@ function formatDate(iso: string) {
   })
 }
 
+// Clean up category name: "MATERIALES PELIGROSOS (INCIDENTE)" → "MAT. PELIGROSOS"
+function cleanCategory(raw: string): string {
+  let cat = raw.replace(/\s*\(.*?\)\s*/g, '').trim() // remove parenthetical
+  // Shorten long categories
+  if (cat === 'MATERIALES PELIGROSOS') cat = 'MATPEL'
+  if (cat === 'ACCIDENTE VEHICULAR') cat = 'ACC. VEHICULAR'
+  if (cat === 'EMERGENCIA MEDICA') cat = 'EMERGENCIA MÉD.'
+  if (cat === 'SERVICIO ESPECIAL') cat = 'SERV. ESPECIAL'
+  return cat
+}
+
 // "RESCATE / ACANTILADO / SIN ACCESO INFERIOR" → "Acantilado · Sin acceso inferior"
 function formatTypeDetail(type: string): string {
   const parts = type.split('/').map(s => s.trim())
-  // Skip first part (category — shown in badge) and format the rest
   const detail = parts.slice(1)
+    .filter(p => p.length > 0)
+    .map(p => p.replace(/\s*\(.*?\)\s*/g, '').trim()) // remove parenthetical
     .filter(p => p.length > 0)
     .map(p => p.charAt(0) + p.slice(1).toLowerCase())
     .join(' · ')
@@ -50,7 +62,7 @@ function formatTypeDetail(type: string): string {
 
 function IncidentCard({ incident }: { incident: Incident }) {
   const isActive = incident.status === 'ATENDIENDO'
-  const typeCategory = incident.type.split('/')[0].trim()
+  const typeCategory = cleanCategory(incident.type.split('/')[0].trim())
   const typeDetail = formatTypeDetail(incident.type)
 
   return (
