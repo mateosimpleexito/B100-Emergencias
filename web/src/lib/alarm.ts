@@ -5,6 +5,14 @@ import { unitName, alertPhrase, B100_UNITS } from '@/types'
 
 // Emergency alarm — loud siren + voice announcement
 // Designed to wake up firefighters. MAX VOLUME.
+//
+// Voice announcements use server-side TTS (/api/tts) played through
+// AudioContext instead of speechSynthesis. This works around:
+//   - Samsung One UI 7+ / Android 15 blocking TTS voices for Chrome
+//   - Chrome requiring user activation for speechSynthesis.speak()
+//   - Chrome 130+ speechSynthesis instability
+// AudioContext playback works in installed PWAs without user gesture
+// thanks to Chrome's autoplay exemption for installed PWAs.
 
 let audioContext: AudioContext | null = null
 let alarmNodes: OscillatorNode[] = []
@@ -12,6 +20,10 @@ let alarmGain: GainNode | null = null
 let alarmTimeout: ReturnType<typeof setTimeout> | null = null
 let speechTimeout: ReturnType<typeof setTimeout> | null = null
 let isPlaying = false
+let currentSpeechSource: AudioBufferSourceNode | null = null
+
+// Cache decoded audio buffers to avoid re-fetching the same announcement
+const ttsCache = new Map<string, AudioBuffer>()
 
 function getContext(): AudioContext | null {
   if (!audioContext || audioContext.state === 'closed') {
@@ -28,18 +40,6 @@ export function initAlarm() {
   const ctx = getContext()
   if (ctx?.state === 'suspended') {
     ctx.resume()
-  }
-  // Pre-warm speech synthesis — Android needs this to load voices
-  if ('speechSynthesis' in window) {
-    window.speechSynthesis.getVoices()
-    window.speechSynthesis.onvoiceschanged = () => {
-      window.speechSynthesis.getVoices()
-    }
-    // Speak a dot to fully initialize the TTS engine
-    const warmup = new SpeechSynthesisUtterance('.')
-    warmup.volume = 0.01
-    warmup.rate = 10
-    window.speechSynthesis.speak(warmup)
   }
 }
 
@@ -121,29 +121,94 @@ function buildAnnouncement(incident: Incident): string {
   return `Atención San Isidro 100. ${alert}. ${b100}. Dirección: ${address}.`
 }
 
-function speak(text: string, onEnd?: () => void) {
+// Fetch TTS audio from server and decode it for AudioContext playback.
+// Uses a cache so repeated announcements don't re-fetch.
+async function fetchTTSAudio(ctx: AudioContext, text: string): Promise<AudioBuffer> {
+  const cached = ttsCache.get(text)
+  if (cached) return cached
+
+  const url = `/api/tts?text=${encodeURIComponent(text)}`
+  const res = await fetch(url)
+
+  if (!res.ok) {
+    throw new Error(`TTS fetch failed: ${res.status}`)
+  }
+
+  const arrayBuffer = await res.arrayBuffer()
+  const audioBuffer = await ctx.decodeAudioData(arrayBuffer)
+
+  // Cache it (keep cache small — only last 5 announcements)
+  if (ttsCache.size >= 5) {
+    const firstKey = ttsCache.keys().next().value!
+    ttsCache.delete(firstKey)
+  }
+  ttsCache.set(text, audioBuffer)
+
+  return audioBuffer
+}
+
+// Play an AudioBuffer through AudioContext and call onEnd when done.
+function playAudioBuffer(ctx: AudioContext, buffer: AudioBuffer, onEnd?: () => void) {
+  const source = ctx.createBufferSource()
+  source.buffer = buffer
+
+  // Boost voice volume
+  const gain = ctx.createGain()
+  gain.gain.setValueAtTime(1.0, ctx.currentTime)
+  source.connect(gain)
+  gain.connect(ctx.destination)
+
+  currentSpeechSource = source
+
+  // Safety timeout — if audio doesn't end in 20s, move on
+  const safetyTimer = setTimeout(() => {
+    try { source.stop() } catch { /* ok */ }
+    currentSpeechSource = null
+    onEnd?.()
+  }, 20000)
+
+  source.onended = () => {
+    clearTimeout(safetyTimer)
+    currentSpeechSource = null
+    onEnd?.()
+  }
+
+  source.start()
+}
+
+// Speak text using server-side TTS played through AudioContext.
+// Falls back to speechSynthesis only on desktop where it works reliably.
+async function speak(ctx: AudioContext, text: string, onEnd?: () => void) {
+  try {
+    const audioBuffer = await fetchTTSAudio(ctx, text)
+    if (!isPlaying) { onEnd?.(); return }
+    playAudioBuffer(ctx, audioBuffer, onEnd)
+  } catch (err) {
+    console.warn('Server TTS failed, trying speechSynthesis fallback:', err)
+    speakFallback(text, onEnd)
+  }
+}
+
+// Fallback: use speechSynthesis (works on desktop, unreliable on Android)
+function speakFallback(text: string, onEnd?: () => void) {
   if (!('speechSynthesis' in window)) {
     onEnd?.()
     return
   }
 
-  // Cancel any ongoing speech
   window.speechSynthesis.cancel()
 
-  // Small delay — Android Chrome needs this after cancel()
   setTimeout(() => {
     const utterance = new SpeechSynthesisUtterance(text)
     utterance.lang = 'es'
     utterance.rate = 0.85
-    utterance.pitch = 0.7 // low pitch for serious tone
+    utterance.pitch = 0.7
     utterance.volume = 1.0
 
-    // Try to find a Spanish voice
     const voices = window.speechSynthesis.getVoices()
     const esVoice = voices.find(v => v.lang.startsWith('es'))
     if (esVoice) utterance.voice = esVoice
 
-    // Safety timeout — if speech doesn't end in 20s, move on
     const safetyTimer = setTimeout(() => {
       window.speechSynthesis.cancel()
       onEnd?.()
@@ -182,6 +247,9 @@ export function playAlarm(incident?: Incident) {
   const announcement = buildAnnouncement(incident)
   let repeatCount = 0
 
+  // Pre-fetch the TTS audio immediately so it's cached for playback
+  fetchTTSAudio(ctx, announcement).catch(() => {})
+
   function killSiren() {
     for (const node of alarmNodes) {
       try { node.stop() } catch { /* ok */ }
@@ -209,7 +277,7 @@ export function playAlarm(incident?: Incident) {
       // Kill siren completely so voice can be heard
       killSiren()
 
-      speak(announcement, () => {
+      speak(ctx!, announcement, () => {
         repeatCount++
         if (isPlaying && repeatCount < 3) {
           speechTimeout = setTimeout(cycle, 300)
@@ -238,6 +306,11 @@ export function stopAlarm() {
   if (alarmGain) {
     try { alarmGain.gain.setValueAtTime(0, alarmGain.context.currentTime) } catch { /* ok */ }
     alarmGain = null
+  }
+
+  if (currentSpeechSource) {
+    try { currentSpeechSource.stop() } catch { /* ok */ }
+    currentSpeechSource = null
   }
 
   if (alarmTimeout) { clearTimeout(alarmTimeout); alarmTimeout = null }
