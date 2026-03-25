@@ -26,11 +26,14 @@ export interface PushPayload {
 
 export function buildIncidentPayload(incident: Incident): PushPayload {
   const unitList = incident.units.join(' · ')
-  const type = incident.type.split('/')[0].trim()
+  const parts = incident.type.split('/').map((s: string) => s.trim())
+  const category = parts[0] // RESCATE, INCENDIO, etc.
+  // Detail: most specific parts, title-cased for readability
+  const detail = parts.slice(1).map((p: string) => p.charAt(0) + p.slice(1).toLowerCase()).join(' · ')
 
   return {
-    title: `🚨 ${type} — B100`,
-    body: `${incident.address}${incident.district ? `, ${incident.district}` : ''}\n${unitList}`,
+    title: `🚨 ${category}${detail ? ` — ${detail}` : ''} — B100`,
+    body: `📍 ${incident.address}${incident.district ? `, ${incident.district}` : ''}\n🚒 ${unitList}`,
     url: `/incidents/${incident.nro_parte}`,
     tag: incident.nro_parte,
     icon: '/icons/icon-192.png',

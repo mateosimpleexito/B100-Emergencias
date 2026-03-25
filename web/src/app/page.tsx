@@ -36,11 +36,21 @@ function formatDate(iso: string) {
   })
 }
 
+// "RESCATE / ACANTILADO / SIN ACCESO INFERIOR" → "Acantilado · Sin acceso inferior"
+function formatTypeDetail(type: string): string {
+  const parts = type.split('/').map(s => s.trim())
+  // Skip first part (category — shown in badge) and format the rest
+  const detail = parts.slice(1)
+    .filter(p => p.length > 0)
+    .map(p => p.charAt(0) + p.slice(1).toLowerCase())
+    .join(' · ')
+  return detail
+}
+
 function IncidentCard({ incident }: { incident: Incident }) {
   const isActive = incident.status === 'ATENDIENDO'
-  const typeParts = incident.type.split('/').map(s => s.trim())
-  const typeCategory = typeParts[0] // RESCATE, INCENDIO, etc.
-  const typeDetail = typeParts.slice(1).join(' / ') // ANIMALES / RESCATE ANIMAL
+  const typeCategory = incident.type.split('/')[0].trim()
+  const typeDetail = formatTypeDetail(incident.type)
 
   return (
     <Link href={`/incidents/${incident.nro_parte}`}>
@@ -51,15 +61,15 @@ function IncidentCard({ incident }: { incident: Incident }) {
         }`}>
 
         <div className="flex items-start justify-between gap-2 mb-2">
-          <div className="flex flex-col gap-0.5">
+          <div className="flex flex-col gap-1">
             <span className={`text-xs font-bold px-2 py-0.5 rounded-full uppercase w-fit ${getTypeColor(incident.type)}`}>
               {typeCategory}
             </span>
             {typeDetail && (
-              <span className="text-xs text-zinc-400 px-2">{typeDetail}</span>
+              <p className="text-sm font-semibold text-zinc-100 px-1 leading-tight">{typeDetail}</p>
             )}
           </div>
-          <div className="text-right">
+          <div className="text-right shrink-0">
             {isActive ? (
               <span className="flex items-center gap-1 text-red-400 text-xs font-semibold">
                 <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse inline-block" />
