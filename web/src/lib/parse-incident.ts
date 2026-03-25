@@ -47,22 +47,24 @@ export function parseIncidentsPage(html: string): ParsedRow[] {
   const rows: ParsedRow[] = []
 
   // Find the incidents table rows (skip header)
+  // Column 0 is <th> (row #), columns 1-7 are <td>:
+  // td[0]=Nro Parte, td[1]=Fecha, td[2]=Dirección, td[3]=Tipo, td[4]=Estado, td[5]=Máquinas, td[6]=Ver Mapa
   $('table tbody tr').each((_, el) => {
     const cells = $(el).find('td')
-    if (cells.length < 7) return
+    if (cells.length < 6) return
 
-    const nro_parte = $(cells[1]).text().trim()
-    const rawDate = $(cells[2]).text().trim()
-    const rawAddress = $(cells[3]).text().trim()
-    const type = $(cells[4]).text().trim()
-    const statusText = $(cells[5]).text().trim().toUpperCase()
+    const nro_parte = $(cells[0]).text().trim()
+    const rawDate = $(cells[1]).text().trim()
+    const rawAddress = $(cells[2]).text().trim()
+    const type = $(cells[3]).text().trim()
+    const statusText = $(cells[4]).text().trim().toUpperCase()
     const status: 'ATENDIENDO' | 'CERRADO' = statusText.includes('CERRADO') ? 'CERRADO' : 'ATENDIENDO'
 
-    // Units are rendered as chips/badges inside the cell
-    const unitsCell = $(cells[6])
+    // Units are inside <li><span>UNIT-CODE</span></li> tags
+    const unitsCell = $(cells[5])
     const units: string[] = []
-    unitsCell.find('*').each((_, chip) => {
-      const text = $(chip).text().trim()
+    unitsCell.find('li span').each((_, span) => {
+      const text = $(span).text().trim()
       if (text) units.push(text)
     })
     // Fallback: plain text split
