@@ -1,12 +1,19 @@
 import webpush from 'web-push'
 import type { Incident } from '@/types'
 
-function initWebPush() {
-  webpush.setVapidDetails(
-    'mailto:' + process.env.VAPID_EMAIL!,
-    process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY!,
-    process.env.VAPID_PRIVATE_KEY!
-  )
+// Initialize VAPID once at module load
+const VAPID_EMAIL = process.env.VAPID_EMAIL
+const VAPID_PUBLIC = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY
+const VAPID_PRIVATE = process.env.VAPID_PRIVATE_KEY
+
+let vapidInitialized = false
+function ensureVapid() {
+  if (vapidInitialized) return
+  if (!VAPID_EMAIL || !VAPID_PUBLIC || !VAPID_PRIVATE) {
+    throw new Error('Missing VAPID env vars (VAPID_EMAIL, NEXT_PUBLIC_VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY)')
+  }
+  webpush.setVapidDetails(`mailto:${VAPID_EMAIL}`, VAPID_PUBLIC, VAPID_PRIVATE)
+  vapidInitialized = true
 }
 
 export interface PushPayload {
@@ -30,17 +37,28 @@ export function buildIncidentPayload(incident: Incident): PushPayload {
   }
 }
 
+// Returns true if sent, false if subscription is expired (should be removed)
 export async function sendPushToSubscription(
   subscription: { endpoint: string; p256dh: string; auth: string },
   payload: PushPayload
-) {
-  initWebPush()
-  await webpush.sendNotification(
-    {
-      endpoint: subscription.endpoint,
-      keys: { p256dh: subscription.p256dh, auth: subscription.auth },
-    },
-    JSON.stringify(payload),
-    { TTL: 60 }
-  )
+): Promise<{ sent: boolean; expired: boolean }> {
+  ensureVapid()
+  try {
+    await webpush.sendNotification(
+      {
+        endpoint: subscription.endpoint,
+        keys: { p256dh: subscription.p256dh, auth: subscription.auth },
+      },
+      JSON.stringify(payload),
+      { TTL: 14400 } // 4 hours — emergency alerts must survive offline periods
+    )
+    return { sent: true, expired: false }
+  } catch (err: unknown) {
+    const statusCode = (err as { statusCode?: number }).statusCode
+    // 404 or 410 = subscription expired, should be cleaned up
+    if (statusCode === 410 || statusCode === 404) {
+      return { sent: false, expired: true }
+    }
+    return { sent: false, expired: false }
+  }
 }

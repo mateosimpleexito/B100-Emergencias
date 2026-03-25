@@ -39,7 +39,12 @@ self.addEventListener('fetch', event => {
 self.addEventListener('push', event => {
   if (!event.data) return
 
-  const payload = event.data.json()
+  let payload
+  try {
+    payload = event.data.json()
+  } catch {
+    payload = { title: '🚨 B100 Emergencia', body: event.data.text() || 'Nueva emergencia' }
+  }
   const { title, body, url, tag, icon } = payload
 
   event.waitUntil(

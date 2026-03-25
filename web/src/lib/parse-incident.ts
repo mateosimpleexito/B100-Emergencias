@@ -16,18 +16,18 @@ export function cleanAddress(address: string): string {
 }
 
 // Parse a dispatched_at string like "18/03/2026 11:03:12 p.m." to ISO
-export function parseDate(raw: string): string {
-  // "18/03/2026 11:03:12 p.m." → Date
+export function parseDate(raw: string): string | null {
+  // "18/03/2026 11:03:12 p.m." → ISO string, or null if unparseable
   const cleaned = raw.trim().replace('p.m.', 'PM').replace('a.m.', 'AM')
   const match = cleaned.match(/(\d{2})\/(\d{2})\/(\d{4})\s+(\d{1,2}):(\d{2}):(\d{2})\s+(AM|PM)/i)
-  if (!match) return new Date().toISOString()
+  if (!match) return null
   const [, day, month, year, hour, min, sec, ampm] = match
   let h = parseInt(hour)
   if (ampm.toUpperCase() === 'PM' && h < 12) h += 12
   if (ampm.toUpperCase() === 'AM' && h === 12) h = 0
-  return new Date(
-    parseInt(year), parseInt(month) - 1, parseInt(day), h, parseInt(min), parseInt(sec)
-  ).toISOString()
+  const date = new Date(Date.UTC(parseInt(year), parseInt(month) - 1, parseInt(day), h, parseInt(min), parseInt(sec)))
+  if (isNaN(date.getTime())) return null
+  return date.toISOString()
 }
 
 export interface ParsedRow {
@@ -80,8 +80,11 @@ export function parseIncidentsPage(html: string): ParsedRow[] {
     const addressLine = cleanAddress(rawAddress)
 
     // Extract district (text after last " - ")
-    const districtMatch = rawAddress.match(/-\s*([A-Z\s]+)$/)
+    const districtMatch = rawAddress.match(/-\s*([\w\sÁÉÍÓÚÑáéíóúñ]+)$/)
     const district = districtMatch ? districtMatch[1].trim() : null
+
+    const dispatched_at = parseDate(rawDate)
+    if (!dispatched_at) return // skip rows with unparseable dates
 
     rows.push({
       nro_parte,
@@ -91,7 +94,7 @@ export function parseIncidentsPage(html: string): ParsedRow[] {
       lat,
       lng,
       status,
-      dispatched_at: parseDate(rawDate),
+      dispatched_at,
       units,
     })
   })

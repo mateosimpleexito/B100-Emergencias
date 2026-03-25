@@ -4,9 +4,8 @@ import { parseIncidentsPage, filterB100Rows } from '@/lib/parse-incident'
 import { buildIncidentPayload, sendPushToSubscription } from '@/lib/push'
 
 const SGO_URL = 'https://sgonorte.bomberosperu.gob.pe/24horas'
+const FETCH_TIMEOUT_MS = 15_000
 
-// This endpoint is called by the Fly.io worker (or Vercel Cron as fallback)
-// It fetches SGO Norte, detects new B100 incidents, and sends push notifications
 export async function POST(req: NextRequest) {
   const secret = req.headers.get('x-scraper-secret')
   if (secret !== process.env.SCRAPER_SECRET) {
@@ -15,21 +14,32 @@ export async function POST(req: NextRequest) {
 
   const supabase = createServiceClient()
 
-  // Fetch SGO Norte page — no-store to prevent Next.js caching
-  const res = await fetch(SGO_URL, {
-    headers: {
-      'User-Agent': 'Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 Chrome/120.0.0.0 Mobile Safari/537.36',
-      'Accept-Language': 'es-PE,es;q=0.9',
-      'Cache-Control': 'no-cache',
-    },
-    cache: 'no-store',
-  })
+  // Fetch SGO Norte with timeout
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
 
-  if (!res.ok) {
-    return NextResponse.json({ error: `SGO Norte returned ${res.status}` }, { status: 502 })
+  let html: string
+  try {
+    const res = await fetch(SGO_URL, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 Chrome/120.0.0.0 Mobile Safari/537.36',
+        'Accept-Language': 'es-PE,es;q=0.9',
+        'Cache-Control': 'no-cache',
+      },
+      cache: 'no-store',
+      signal: controller.signal,
+    })
+    if (!res.ok) {
+      return NextResponse.json({ error: `SGO Norte returned ${res.status}` }, { status: 502 })
+    }
+    html = await res.text()
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : 'Unknown fetch error'
+    return NextResponse.json({ error: `SGO fetch failed: ${msg}` }, { status: 502 })
+  } finally {
+    clearTimeout(timeout)
   }
 
-  const html = await res.text()
   const allRows = parseIncidentsPage(html)
   const b100Rows = filterB100Rows(allRows)
 
@@ -48,7 +58,6 @@ export async function POST(req: NextRequest) {
 
   let newCount = 0
   let updatedCount = 0
-  const errors: string[] = []
 
   for (const row of b100Rows) {
     const existingStatus = existingMap.get(row.nro_parte)
@@ -61,14 +70,11 @@ export async function POST(req: NextRequest) {
         .select()
         .single()
 
-      if (error) {
-        errors.push(error.message)
-        continue
-      }
+      if (error) continue
       if (inserted) {
         newCount++
 
-        // Fire push notifications
+        // Fire push notifications & clean up expired subscriptions
         const { data: subs } = await supabase
           .from('push_subscriptions')
           .select('endpoint, p256dh, auth')
@@ -76,7 +82,21 @@ export async function POST(req: NextRequest) {
 
         if (subs && subs.length > 0) {
           const payload = buildIncidentPayload(inserted)
-          await Promise.allSettled(subs.map(s => sendPushToSubscription(s, payload)))
+          const results = await Promise.allSettled(
+            subs.map(async (s) => {
+              const result = await sendPushToSubscription(s, payload)
+              if (result.expired) {
+                // Mark expired subscription as inactive
+                await supabase
+                  .from('push_subscriptions')
+                  .update({ active: false })
+                  .eq('endpoint', s.endpoint)
+              }
+              return result
+            })
+          )
+          const sent = results.filter(r => r.status === 'fulfilled' && (r.value as { sent: boolean }).sent).length
+          console.log(`[scrape] Push sent: ${sent}/${subs.length}`)
         }
       }
     } else if (existingStatus !== row.status) {
@@ -89,11 +109,7 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  return NextResponse.json({
-    new: newCount,
-    updated: updatedCount,
-    ...(errors.length > 0 ? { errors } : {}),
-  })
+  return NextResponse.json({ new: newCount, updated: updatedCount })
 }
 
 // Support GET for Vercel Cron
@@ -103,7 +119,6 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  // Re-use POST logic with a fake secret header
   const fakeReq = new NextRequest(req.url, {
     method: 'POST',
     headers: { 'x-scraper-secret': process.env.SCRAPER_SECRET ?? '' },
