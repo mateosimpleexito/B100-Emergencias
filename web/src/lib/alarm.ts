@@ -106,7 +106,7 @@ function buildAnnouncement(incident: Incident): string {
     .replace(/NRO\./gi, 'Número')
     .replace(/Nro\./gi, 'Número')
 
-  return `Atención Compañía 100. ${alert}. ${b100}. Dirección: ${address}.`
+  return `Atención San Isidro 100. ${alert}. ${b100}. Dirección: ${address}.`
 }
 
 function speak(text: string, onEnd?: () => void) {
