@@ -50,7 +50,9 @@ self.addEventListener('push', event => {
       tag,
       data: { url },
       requireInteraction: true,    // stays visible until dismissed
-      vibrate: [300, 100, 300, 100, 600],  // SOS-like pattern
+      renotify: true,              // re-alert even if same tag exists
+      silent: false,               // force sound on
+      vibrate: [300, 100, 300, 100, 300, 100, 600],  // SOS-like pattern
       actions: [
         { action: 'open', title: 'Ver emergencia' },
         { action: 'dismiss', title: 'Cerrar' },
@@ -67,18 +69,18 @@ self.addEventListener('notificationclick', event => {
 
   const url = event.notification.data?.url || '/'
 
+  const targetUrl = new URL(url, self.location.origin).href
+
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then(windowClients => {
       // Focus existing window if open
       for (const client of windowClients) {
-        if (client.url.includes(self.location.origin)) {
-          client.focus()
-          client.navigate(url)
-          return
+        if (client.url.includes(self.location.origin) && 'focus' in client) {
+          return client.focus().then(c => c.navigate(targetUrl))
         }
       }
       // Otherwise open new window
-      return clients.openWindow(url)
+      return clients.openWindow(targetUrl)
     })
   )
 })
