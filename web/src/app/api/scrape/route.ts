@@ -15,14 +15,14 @@ export async function POST(req: NextRequest) {
 
   const supabase = createServiceClient()
 
-  // Fetch SGO Norte page
+  // Fetch SGO Norte page — no-store to prevent Next.js caching
   const res = await fetch(SGO_URL, {
     headers: {
       'User-Agent': 'Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 Chrome/120.0.0.0 Mobile Safari/537.36',
       'Accept-Language': 'es-PE,es;q=0.9',
       'Cache-Control': 'no-cache',
     },
-    next: { revalidate: 0 },
+    cache: 'no-store',
   })
 
   if (!res.ok) {
@@ -48,6 +48,7 @@ export async function POST(req: NextRequest) {
 
   let newCount = 0
   let updatedCount = 0
+  const errors: string[] = []
 
   for (const row of b100Rows) {
     const existingStatus = existingMap.get(row.nro_parte)
@@ -60,7 +61,11 @@ export async function POST(req: NextRequest) {
         .select()
         .single()
 
-      if (!error && inserted) {
+      if (error) {
+        errors.push(error.message)
+        continue
+      }
+      if (inserted) {
         newCount++
 
         // Fire push notifications
@@ -84,7 +89,11 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  return NextResponse.json({ new: newCount, updated: updatedCount })
+  return NextResponse.json({
+    new: newCount,
+    updated: updatedCount,
+    ...(errors.length > 0 ? { errors } : {}),
+  })
 }
 
 // Support GET for Vercel Cron
