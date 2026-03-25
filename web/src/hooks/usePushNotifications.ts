@@ -2,13 +2,24 @@
 
 import { useState, useEffect } from 'react'
 
-export type PushState = 'unsupported' | 'denied' | 'pending' | 'subscribed' | 'unsubscribed'
+export type PushState = 'unsupported' | 'denied' | 'pending' | 'subscribed' | 'unsubscribed' | 'native'
+
+// Detect if running inside the Capacitor native app (Android APK)
+function isCapacitorNative(): boolean {
+  return typeof window !== 'undefined' && !!(window as Record<string, unknown>).Capacitor
+}
 
 export function usePushNotifications(userId?: string) {
   const [state, setState] = useState<PushState>('pending')
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
+    // Running inside the native APK — Web Push API not available.
+    // Push notifications are handled by FCM via @capacitor/push-notifications.
+    if (isCapacitorNative()) {
+      setState('native')
+      return
+    }
     if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
       setState('unsupported')
       return
