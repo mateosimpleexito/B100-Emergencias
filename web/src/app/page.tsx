@@ -389,10 +389,17 @@ export default function HomePage() {
         <div className="w-10 h-10 rounded-full bg-red-600 flex items-center justify-center text-xl">
           🚒
         </div>
-        <div>
+        <div className="flex-1">
           <h1 className="text-xl font-bold leading-none">B100 Emergencias</h1>
           <p className="text-xs text-zinc-400">Bomberos San Isidro 100</p>
         </div>
+        <Link
+          href="/mapa"
+          className="flex flex-col items-center justify-center w-12 h-12 rounded-xl bg-zinc-800 hover:bg-zinc-700 transition-colors text-xl leading-none"
+          title="Mapa de emergencias"
+        >
+          🗺️
+        </Link>
       </div>
 
       <div className="mb-6">
