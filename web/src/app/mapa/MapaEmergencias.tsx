@@ -226,42 +226,51 @@ export default function MapaEmergencias() {
     setHydrantCount(count)
   }, [])
 
+  // ── Apply a geolocation position ─────────────────────────────────────────
+  const applyPosition = useCallback((lat: number, lng: number) => {
+    setGeoStatus('granted')
+    setGeoRequesting(false)
+    const map = mapInstanceRef.current
+    const L = leafletRef.current
+    if (!map || !L) return
+    map.setView([lat, lng], 16)
+    if (userMarkerRef.current) {
+      userMarkerRef.current.setLatLng([lat, lng])
+    } else {
+      userMarkerRef.current = L.marker([lat, lng], {
+        icon: userLocationIcon(L),
+        zIndexOffset: 2000,
+      }).addTo(map)
+    }
+    void loadHydrantsNear(L, lat, lng, HYDRANT_RADIUS_KM)
+  }, [loadHydrantsNear])
+
   // ── Go to user location ──────────────────────────────────────────────────
+  // Strategy: fast attempt first (network/cache, sub-second), no GPS chip needed.
+  // For finding hydrants within 2km, 50m accuracy is more than sufficient.
   const goToUser = useCallback(() => {
     if (!navigator.geolocation) { setGeoStatus('unavailable'); return }
     setGeoRequesting(true)
+
     navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        const { latitude: lat, longitude: lng } = pos.coords
-        setGeoStatus('granted')
-        setGeoRequesting(false)
-
-        const map = mapInstanceRef.current
-        const L = leafletRef.current
-        if (!map || !L) return
-
-        map.setView([lat, lng], 16)
-
-        if (userMarkerRef.current) {
-          userMarkerRef.current.setLatLng([lat, lng])
-        } else {
-          userMarkerRef.current = L.marker([lat, lng], {
-            icon: userLocationIcon(L),
-            zIndexOffset: 2000,
-          }).addTo(map)
-        }
-
-        void loadHydrantsNear(L, lat, lng, HYDRANT_RADIUS_KM)
-      },
+      (pos) => applyPosition(pos.coords.latitude, pos.coords.longitude),
       () => {
-        setGeoStatus('denied')
-        setGeoRequesting(false)
-        const L = leafletRef.current
-        if (L) void loadHydrantsNear(L, CENTER[0], CENTER[1], FALLBACK_RADIUS_KM)
+        // Fast attempt failed — try with GPS (slower but more likely to succeed)
+        navigator.geolocation.getCurrentPosition(
+          (pos) => applyPosition(pos.coords.latitude, pos.coords.longitude),
+          () => {
+            setGeoStatus('denied')
+            setGeoRequesting(false)
+            const L = leafletRef.current
+            if (L) void loadHydrantsNear(L, CENTER[0], CENTER[1], FALLBACK_RADIUS_KM)
+          },
+          { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+        )
       },
-      { timeout: 8000, maximumAge: 60000 }
+      // Fast: accept any cache up to 5 min, no GPS chip, timeout 3s
+      { enableHighAccuracy: false, timeout: 3000, maximumAge: 300000 }
     )
-  }, [loadHydrantsNear])
+  }, [applyPosition, loadHydrantsNear])
 
   // ── Init map ─────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -320,25 +329,33 @@ export default function MapaEmergencias() {
           .addTo(map)
       }
 
-      // Geolocation
+      // Geolocation — fast attempt first (no GPS chip, accepts 5min cache)
       if (navigator.geolocation) {
-        navigator.geolocation.getCurrentPosition(
-          (pos) => {
-            const { latitude: lat, longitude: lng } = pos.coords
-            setGeoStatus('granted')
-            map.setView([lat, lng], 16)
+        const onSuccess = (pos: GeolocationPosition) => {
+          const { latitude: lat, longitude: lng } = pos.coords
+          setGeoStatus('granted')
+          map.setView([lat, lng], 16)
+          if (!userMarkerRef.current) {
             userMarkerRef.current = L.marker([lat, lng], {
               icon: userLocationIcon(L),
               zIndexOffset: 2000,
             }).addTo(map)
-            void loadHydrantsNear(L, lat, lng, HYDRANT_RADIUS_KM)
-          },
-          () => {
-            setGeoStatus('denied')
-            void loadHydrantsNear(L, CENTER[0], CENTER[1], FALLBACK_RADIUS_KM)
-          },
-          { timeout: 8000, maximumAge: 60000 }
-        )
+          } else {
+            userMarkerRef.current.setLatLng([lat, lng])
+          }
+          void loadHydrantsNear(L, lat, lng, HYDRANT_RADIUS_KM)
+        }
+        const onDeny = () => {
+          setGeoStatus('denied')
+          void loadHydrantsNear(L, CENTER[0], CENTER[1], FALLBACK_RADIUS_KM)
+        }
+        // Fast: WiFi/cell/cache — resolves in <500ms in urban Lima
+        navigator.geolocation.getCurrentPosition(onSuccess, () => {
+          // Fallback: full GPS
+          navigator.geolocation.getCurrentPosition(onSuccess, onDeny,
+            { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+          )
+        }, { enableHighAccuracy: false, timeout: 3000, maximumAge: 300000 })
       } else {
         setGeoStatus('unavailable')
         void loadHydrantsNear(L, CENTER[0], CENTER[1], FALLBACK_RADIUS_KM)
@@ -404,6 +421,19 @@ export default function MapaEmergencias() {
     <>
       {/* CSS animations for map markers */}
       <style>{`
+        @keyframes b100-spin {
+          to { transform: rotate(360deg); }
+        }
+        .b100-spinner {
+          display: inline-block;
+          width: 12px; height: 12px;
+          border: 2px solid rgba(255,255,255,0.3);
+          border-top-color: white;
+          border-radius: 50%;
+          animation: b100-spin 0.7s linear infinite;
+          vertical-align: middle;
+          margin-right: 4px;
+        }
         @keyframes b100-user-pulse {
           0%   { box-shadow: 0 0 0 0 rgba(59,130,246,0.7); }
           70%  { box-shadow: 0 0 0 16px rgba(59,130,246,0); }
@@ -474,7 +504,9 @@ export default function MapaEmergencias() {
                   : 'bg-zinc-800 text-zinc-400 border-zinc-700 animate-pulse'
               }`}
             >
-              📍 {geoStatus === 'granted' ? `${HYDRANT_RADIUS_KM} km` : geoRequesting ? '…' : geoStatus === 'denied' ? 'Activar' : '…'}
+              {geoRequesting && <span className="b100-spinner" />}
+              {!geoRequesting && '📍 '}
+              {geoStatus === 'granted' ? `${HYDRANT_RADIUS_KM} km` : geoRequesting ? 'GPS...' : 'Activar'}
             </button>
 
             <button
@@ -494,10 +526,13 @@ export default function MapaEmergencias() {
               disabled={geoRequesting}
               className="w-full flex items-center gap-2 bg-yellow-900/50 border border-yellow-700/60 rounded-lg px-3 py-2 text-left"
             >
-              <span className="text-base shrink-0">{geoRequesting ? '⏳' : '📍'}</span>
+              {geoRequesting
+                ? <span className="b100-spinner shrink-0" />
+                : <span className="text-base shrink-0">📍</span>
+              }
               <span className="flex-1 text-yellow-300 text-xs leading-tight">
                 {geoRequesting
-                  ? 'Solicitando ubicación...'
+                  ? 'Obteniendo tu ubicación...'
                   : permPermanentDenied
                   ? 'Ubicación bloqueada — tocá para activarla'
                   : 'Ubicación desactivada — los hidrantes pueden no ser de tu zona'}
