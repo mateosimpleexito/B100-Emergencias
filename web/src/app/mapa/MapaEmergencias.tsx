@@ -222,7 +222,7 @@ export default function MapaEmergencias() {
               >
                 Todos
               </button>
-              {INSURANCE_LABELS.map(ins => (
+              {(Object.keys(INSURANCE_LABELS) as InsuranceType[]).map(ins => (
                 <button
                   key={ins}
                   onClick={() => setSelectedInsurance(selectedInsurance === ins ? null : ins)}
