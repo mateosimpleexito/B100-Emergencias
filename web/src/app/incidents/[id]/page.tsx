@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation'
 import Link from 'next/link'
 import { B100_UNITS } from '@/types'
 import IncidentMap from './IncidentMap'
+import CloseIncidentButton from './CloseIncidentButton'
 import { getResourceGroups } from '@/lib/emergency-resources'
 import type { ResourceGroup } from '@/lib/emergency-resources'
 
@@ -174,6 +175,22 @@ export default async function IncidentPage({ params }: Props) {
             >
               Waze
             </a>
+          </div>
+        )}
+
+        {/* Manual close — only when active */}
+        {isActive && (
+          <CloseIncidentButton
+            nroParte={incident.nro_parte}
+            dispatchedAt={incident.dispatched_at}
+          />
+        )}
+
+        {/* Close note — shown when closed manually */}
+        {!isActive && incident.close_note && (
+          <div className="rounded-xl border border-zinc-700 bg-zinc-900/60 px-4 py-3">
+            <p className="text-xs text-zinc-500 mb-1">Nota de cierre</p>
+            <p className="text-sm text-zinc-300">{incident.close_note}</p>
           </div>
         )}
 
