@@ -6,7 +6,6 @@ import android.media.AudioAttributes;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
-import android.webkit.WebSettings;
 import com.getcapacitor.BridgeActivity;
 
 public class MainActivity extends BridgeActivity {
@@ -21,15 +20,17 @@ public class MainActivity extends BridgeActivity {
         super.onCreate(savedInstanceState);
 
         // ─── 1. Remove user-gesture requirement for Web Audio ──────────────
-        // This is the key fix. In a native WebView we control the autoplay
-        // policy — AudioContext.resume() works WITHOUT requiring a user tap.
-        WebSettings settings = getBridge().getWebView().getSettings();
-        settings.setMediaPlaybackRequiresUserGesture(false);
+        try {
+            android.webkit.WebView webView = getBridge().getWebView();
+            if (webView != null) {
+                webView.getSettings().setMediaPlaybackRequiresUserGesture(false);
+            }
+        } catch (Exception ignored) {}
 
         // ─── 2. Create high-priority notification channel with siren sound ─
-        // Android 8+ requires channels. We set importance to HIGH so the
-        // notification makes a sound and shows as a heads-up even on Doze.
-        createEmergencyNotificationChannel();
+        try {
+            createEmergencyNotificationChannel();
+        } catch (Exception ignored) {}
     }
 
     private void createEmergencyNotificationChannel() {
