@@ -1,12 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase'
 import { parseIncidentsPage, filterB100Rows } from '@/lib/parse-incident'
-import { buildIncidentPayload, sendPushToSubscription } from '@/lib/push'
+import { buildIncidentPayload, sendPushToSubscription, sendFCMToToken } from '@/lib/push'
 
 const SGO_URL = 'https://sgonorte.bomberosperu.gob.pe/24horas'
+const FETCH_TIMEOUT_MS = 15_000
 
-// This endpoint is called by the Fly.io worker (or Vercel Cron as fallback)
-// It fetches SGO Norte, detects new B100 incidents, and sends push notifications
 export async function POST(req: NextRequest) {
   const secret = req.headers.get('x-scraper-secret')
   if (secret !== process.env.SCRAPER_SECRET) {
@@ -15,21 +14,32 @@ export async function POST(req: NextRequest) {
 
   const supabase = createServiceClient()
 
-  // Fetch SGO Norte page
-  const res = await fetch(SGO_URL, {
-    headers: {
-      'User-Agent': 'Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 Chrome/120.0.0.0 Mobile Safari/537.36',
-      'Accept-Language': 'es-PE,es;q=0.9',
-      'Cache-Control': 'no-cache',
-    },
-    next: { revalidate: 0 },
-  })
+  // Fetch SGO Norte with timeout
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
 
-  if (!res.ok) {
-    return NextResponse.json({ error: `SGO Norte returned ${res.status}` }, { status: 502 })
+  let html: string
+  try {
+    const res = await fetch(SGO_URL, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 Chrome/120.0.0.0 Mobile Safari/537.36',
+        'Accept-Language': 'es-PE,es;q=0.9',
+        'Cache-Control': 'no-cache',
+      },
+      cache: 'no-store',
+      signal: controller.signal,
+    })
+    if (!res.ok) {
+      return NextResponse.json({ error: `SGO Norte returned ${res.status}` }, { status: 502 })
+    }
+    html = await res.text()
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : 'Unknown fetch error'
+    return NextResponse.json({ error: `SGO fetch failed: ${msg}` }, { status: 502 })
+  } finally {
+    clearTimeout(timeout)
   }
 
-  const html = await res.text()
   const allRows = parseIncidentsPage(html)
   const b100Rows = filterB100Rows(allRows)
 
@@ -60,18 +70,54 @@ export async function POST(req: NextRequest) {
         .select()
         .single()
 
-      if (!error && inserted) {
+      if (error) continue
+      if (inserted) {
         newCount++
 
-        // Fire push notifications
+        // Fire push notifications & clean up expired subscriptions
         const { data: subs } = await supabase
           .from('push_subscriptions')
           .select('endpoint, p256dh, auth')
           .eq('active', true)
 
+        const payload = buildIncidentPayload(inserted)
+
+        // Web Push (PWA subscribers)
         if (subs && subs.length > 0) {
-          const payload = buildIncidentPayload(inserted)
-          await Promise.allSettled(subs.map(s => sendPushToSubscription(s, payload)))
+          const results = await Promise.allSettled(
+            subs.map(async (s) => {
+              const result = await sendPushToSubscription(s, payload)
+              if (result.expired) {
+                await supabase
+                  .from('push_subscriptions')
+                  .update({ active: false })
+                  .eq('endpoint', s.endpoint)
+              }
+              return result
+            })
+          )
+          const sent = results.filter(r => r.status === 'fulfilled' && (r.value as { sent: boolean }).sent).length
+          console.log(`[scrape] Web Push sent: ${sent}/${subs.length}`)
+        }
+
+        // FCM Push (native APK subscribers)
+        const { data: fcmTokens } = await supabase
+          .from('fcm_tokens')
+          .select('token')
+          .eq('active', true)
+
+        if (fcmTokens && fcmTokens.length > 0) {
+          const fcmResults = await Promise.allSettled(
+            fcmTokens.map(async (t: { token: string }) => {
+              const result = await sendFCMToToken(t.token, payload)
+              if (result.expired) {
+                await supabase.from('fcm_tokens').update({ active: false }).eq('token', t.token)
+              }
+              return result
+            })
+          )
+          const fcmSent = fcmResults.filter(r => r.status === 'fulfilled' && (r.value as { sent: boolean }).sent).length
+          console.log(`[scrape] FCM sent: ${fcmSent}/${fcmTokens.length}`)
         }
       }
     } else if (existingStatus !== row.status) {
@@ -85,4 +131,18 @@ export async function POST(req: NextRequest) {
   }
 
   return NextResponse.json({ new: newCount, updated: updatedCount })
+}
+
+// Support GET for Vercel Cron
+export async function GET(req: NextRequest) {
+  const secret = req.headers.get('authorization')
+  if (secret !== `Bearer ${process.env.CRON_SECRET}`) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
+  const fakeReq = new NextRequest(req.url, {
+    method: 'POST',
+    headers: { 'x-scraper-secret': process.env.SCRAPER_SECRET ?? '' },
+  })
+  return POST(fakeReq)
 }

@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">B100 Emergencias</string>
+    <string name="title_activity_main">B100 Emergencias</string>
+    <string name="package_name">pe.b100.emergencias</string>
+    <string name="custom_url_scheme">pe.b100.emergencias</string>
+</resources>

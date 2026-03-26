@@ -1,23 +1,22 @@
 # Fly.io config para el worker de scraping de B100
 app = "b100-scraper"
-primary_region = "scl"  # Santiago, Chile — más cercano a Lima
+primary_region = "gru"  # São Paulo, Brazil — más cercano a Lima
 
 [build]
-  # No Dockerfile needed — Fly auto-detects Node.js from package.json
 
 [env]
   POLL_INTERVAL_MS = "3000"
   NODE_ENV = "production"
 
-[http_service]
-  # This is not an HTTP server — disable the HTTP listener
-  force_https = false
+[processes]
+  worker = "node src/index.js"
 
 [[vm]]
   memory = "256mb"
   cpu_kind = "shared"
   cpus = 1
 
+# No HTTP service — this is a background worker
 # Secrets to set via CLI (never commit these):
-# fly secrets set APP_URL=https://b100-emergencias.vercel.app
-# fly secrets set SCRAPER_SECRET=<random-secret>
+# fly secrets set APP_URL=<your-vercel-url>
+# fly secrets set SCRAPER_SECRET=<your-secret>

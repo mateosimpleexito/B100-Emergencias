@@ -16,18 +16,21 @@ export function cleanAddress(address: string): string {
 }
 
 // Parse a dispatched_at string like "18/03/2026 11:03:12 p.m." to ISO
-export function parseDate(raw: string): string {
-  // "18/03/2026 11:03:12 p.m." → Date
+export function parseDate(raw: string): string | null {
+  // "18/03/2026 11:03:12 p.m." → ISO string, or null if unparseable
   const cleaned = raw.trim().replace('p.m.', 'PM').replace('a.m.', 'AM')
   const match = cleaned.match(/(\d{2})\/(\d{2})\/(\d{4})\s+(\d{1,2}):(\d{2}):(\d{2})\s+(AM|PM)/i)
-  if (!match) return new Date().toISOString()
+  if (!match) return null
   const [, day, month, year, hour, min, sec, ampm] = match
   let h = parseInt(hour)
   if (ampm.toUpperCase() === 'PM' && h < 12) h += 12
   if (ampm.toUpperCase() === 'AM' && h === 12) h = 0
-  return new Date(
-    parseInt(year), parseInt(month) - 1, parseInt(day), h, parseInt(min), parseInt(sec)
-  ).toISOString()
+  // SGO Norte times are in Peru time (UTC-5) — store with correct offset
+  const pad = (n: number) => n.toString().padStart(2, '0')
+  const iso = `${year}-${month}-${day}T${pad(h)}:${min}:${sec}-05:00`
+  const date = new Date(iso)
+  if (isNaN(date.getTime())) return null
+  return date.toISOString()
 }
 
 export interface ParsedRow {
@@ -47,22 +50,24 @@ export function parseIncidentsPage(html: string): ParsedRow[] {
   const rows: ParsedRow[] = []
 
   // Find the incidents table rows (skip header)
+  // Column 0 is <th> (row #), columns 1-7 are <td>:
+  // td[0]=Nro Parte, td[1]=Fecha, td[2]=Dirección, td[3]=Tipo, td[4]=Estado, td[5]=Máquinas, td[6]=Ver Mapa
   $('table tbody tr').each((_, el) => {
     const cells = $(el).find('td')
-    if (cells.length < 7) return
+    if (cells.length < 6) return
 
-    const nro_parte = $(cells[1]).text().trim()
-    const rawDate = $(cells[2]).text().trim()
-    const rawAddress = $(cells[3]).text().trim()
-    const type = $(cells[4]).text().trim()
-    const statusText = $(cells[5]).text().trim().toUpperCase()
+    const nro_parte = $(cells[0]).text().trim()
+    const rawDate = $(cells[1]).text().trim()
+    const rawAddress = $(cells[2]).text().trim()
+    const type = $(cells[3]).text().trim()
+    const statusText = $(cells[4]).text().trim().toUpperCase()
     const status: 'ATENDIENDO' | 'CERRADO' = statusText.includes('CERRADO') ? 'CERRADO' : 'ATENDIENDO'
 
-    // Units are rendered as chips/badges inside the cell
-    const unitsCell = $(cells[6])
+    // Units are inside <li><span>UNIT-CODE</span></li> tags
+    const unitsCell = $(cells[5])
     const units: string[] = []
-    unitsCell.find('*').each((_, chip) => {
-      const text = $(chip).text().trim()
+    unitsCell.find('li span').each((_, span) => {
+      const text = $(span).text().trim()
       if (text) units.push(text)
     })
     // Fallback: plain text split
@@ -78,8 +83,11 @@ export function parseIncidentsPage(html: string): ParsedRow[] {
     const addressLine = cleanAddress(rawAddress)
 
     // Extract district (text after last " - ")
-    const districtMatch = rawAddress.match(/-\s*([A-Z\s]+)$/)
+    const districtMatch = rawAddress.match(/-\s*([\w\sÁÉÍÓÚÑáéíóúñ]+)$/)
     const district = districtMatch ? districtMatch[1].trim() : null
+
+    const dispatched_at = parseDate(rawDate)
+    if (!dispatched_at) return // skip rows with unparseable dates
 
     rows.push({
       nro_parte,
@@ -89,7 +97,7 @@ export function parseIncidentsPage(html: string): ParsedRow[] {
       lat,
       lng,
       status,
-      dispatched_at: parseDate(rawDate),
+      dispatched_at,
       units,
     })
   })

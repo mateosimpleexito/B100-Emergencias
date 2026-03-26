@@ -1,11 +1,12 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { usePushNotifications } from '@/hooks/usePushNotifications'
-import type { Incident } from '@/types'
-import { B100_UNITS } from '@/types'
+import { initAlarm, playAlarm, stopAlarm } from '@/lib/alarm'
+import type { Incident, CompanyStatus, VehicleStatusCode } from '@/types'
+import { B100_UNITS, unitName, alertPhrase } from '@/types'
 
 const TYPE_COLORS: Record<string, string> = {
   INCENDIO: 'bg-red-600',
@@ -36,9 +37,33 @@ function formatDate(iso: string) {
   })
 }
 
+// Clean up category name: "MATERIALES PELIGROSOS (INCIDENTE)" → "MAT. PELIGROSOS"
+function cleanCategory(raw: string): string {
+  let cat = raw.replace(/\s*\(.*?\)\s*/g, '').trim() // remove parenthetical
+  // Shorten long categories
+  if (cat === 'MATERIALES PELIGROSOS') cat = 'MATPEL'
+  if (cat === 'ACCIDENTE VEHICULAR') cat = 'ACC. VEHICULAR'
+  if (cat === 'EMERGENCIA MEDICA') cat = 'EMERGENCIA MÉD.'
+  if (cat === 'SERVICIO ESPECIAL') cat = 'SERV. ESPECIAL'
+  return cat
+}
+
+// "RESCATE / ACANTILADO / SIN ACCESO INFERIOR" → "Acantilado · Sin acceso inferior"
+function formatTypeDetail(type: string): string {
+  const parts = type.split('/').map(s => s.trim())
+  const detail = parts.slice(1)
+    .filter(p => p.length > 0)
+    .map(p => p.replace(/\s*\(.*?\)\s*/g, '').trim()) // remove parenthetical
+    .filter(p => p.length > 0)
+    .map(p => p.charAt(0) + p.slice(1).toLowerCase())
+    .join(' · ')
+  return detail
+}
+
 function IncidentCard({ incident }: { incident: Incident }) {
   const isActive = incident.status === 'ATENDIENDO'
-  const typeShort = incident.type.split('/')[0].trim()
+  const typeCategory = cleanCategory(incident.type.split('/')[0].trim())
+  const typeDetail = formatTypeDetail(incident.type)
 
   return (
     <Link href={`/incidents/${incident.nro_parte}`}>
@@ -49,10 +74,15 @@ function IncidentCard({ incident }: { incident: Incident }) {
         }`}>
 
         <div className="flex items-start justify-between gap-2 mb-2">
-          <span className={`text-xs font-bold px-2 py-0.5 rounded-full uppercase ${getTypeColor(incident.type)}`}>
-            {typeShort}
-          </span>
-          <div className="text-right">
+          <div className="flex flex-col gap-1">
+            <span className={`text-xs font-bold px-2 py-0.5 rounded-full uppercase w-fit ${getTypeColor(incident.type)}`}>
+              {typeCategory}
+            </span>
+            {typeDetail && (
+              <p className="text-sm font-semibold text-zinc-100 px-1 leading-tight">{typeDetail}</p>
+            )}
+          </div>
+          <div className="text-right shrink-0">
             {isActive ? (
               <span className="flex items-center gap-1 text-red-400 text-xs font-semibold">
                 <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse inline-block" />
@@ -71,16 +101,16 @@ function IncidentCard({ incident }: { incident: Incident }) {
           <p className="text-xs text-zinc-400 mb-2">{incident.district}</p>
         )}
 
-        <div className="flex flex-wrap gap-1 mb-2">
-          {incident.units.map(u => (
-            <span key={u} className={`text-xs px-2 py-0.5 rounded font-mono font-semibold
-              ${(B100_UNITS as readonly string[]).includes(u)
-                ? 'bg-red-700 text-white'
-                : 'bg-zinc-700 text-zinc-300'
-              }`}>
-              {u}
-            </span>
-          ))}
+        <div className="flex flex-wrap gap-1.5 mb-2">
+          {incident.units.map(u => {
+            const isB100 = (B100_UNITS as readonly string[]).includes(u)
+            return (
+              <span key={u} className={`text-xs px-2 py-1 rounded font-bold
+                ${isB100 ? 'bg-red-700 text-white' : 'bg-zinc-700 text-zinc-300'}`}>
+                {unitName(u)}
+              </span>
+            )
+          })}
         </div>
 
         <div className="flex items-center justify-between">
@@ -94,8 +124,69 @@ function IncidentCard({ incident }: { incident: Incident }) {
   )
 }
 
+const STATUS_CONFIG: Record<VehicleStatusCode, { color: string; dot: string; label: string }> = {
+  disponible: { color: 'text-green-400', dot: 'bg-green-500', label: 'Disponible' },
+  en_emergencia: { color: 'text-yellow-400', dot: 'bg-yellow-500', label: 'En emergencia' },
+  no_disponible: { color: 'text-red-400', dot: 'bg-red-500', label: 'No disponible' },
+  en_taller: { color: 'text-zinc-400', dot: 'bg-zinc-500', label: 'En taller' },
+}
+
+function CompanyStatusPanel({ status }: { status: CompanyStatus | null }) {
+  if (!status) {
+    return (
+      <div className="rounded-xl border border-zinc-700 bg-zinc-900/50 p-4 text-center text-zinc-500 text-sm">
+        Cargando estado de unidades...
+      </div>
+    )
+  }
+
+  const updatedAgo = Math.round((Date.now() - new Date(status.updated_at).getTime()) / 60000)
+
+  return (
+    <div className="rounded-xl border border-zinc-700 bg-zinc-900/50 p-4">
+      <div className="flex items-center justify-between mb-3">
+        <h2 className="text-sm font-semibold text-zinc-200">Estado B-100</h2>
+        <span className="text-xs text-zinc-500">
+          {updatedAgo < 2 ? 'ahora' : `hace ${updatedAgo} min`}
+        </span>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2 mb-3">
+        {status.vehicles.map(v => {
+          const cfg = STATUS_CONFIG[v.status]
+          return (
+            <div key={v.code} className="flex items-center gap-2 text-sm">
+              <span className={`w-2 h-2 rounded-full shrink-0 ${cfg.dot} ${v.status === 'en_emergencia' ? 'animate-pulse' : ''}`} />
+              <span className="font-mono font-semibold text-zinc-100 text-xs">{v.code}</span>
+              <span className={`text-xs ${cfg.color}`}>{cfg.label}</span>
+            </div>
+          )
+        })}
+      </div>
+
+      <div className="flex gap-4 pt-2 border-t border-zinc-800 text-xs text-zinc-400">
+        <span>{status.pilots} piloto{status.pilots !== 1 ? 's' : ''}</span>
+        <span>{status.paramedics} param.</span>
+        <span>{status.personnel} personal</span>
+      </div>
+    </div>
+  )
+}
+
 function AlarmButton() {
   const { state, loading, subscribe, unsubscribe } = usePushNotifications()
+
+  if (state === 'native') {
+    return (
+      <div className="rounded-xl border border-green-700 bg-green-950/30 p-4">
+        <p className="text-green-400 font-semibold text-sm flex items-center gap-2">
+          <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse inline-block" />
+          App nativa activa
+        </p>
+        <p className="text-zinc-400 text-xs mt-1">La alarma sonará automáticamente cuando llegue una emergencia con la app abierta.</p>
+      </div>
+    )
+  }
 
   if (state === 'unsupported') {
     return (
@@ -153,27 +244,91 @@ function AlarmButton() {
 export default function HomePage() {
   const [incidents, setIncidents] = useState<Incident[]>([])
   const [loading, setLoading] = useState(true)
+  const [companyStatus, setCompanyStatus] = useState<CompanyStatus | null>(null)
+  const [alarmActive, setAlarmActive] = useState(false)
+
+  const triggerAlarm = useCallback((incident?: Incident) => {
+    playAlarm(incident)
+    setAlarmActive(true)
+  }, [])
+
+  const dismissAlarm = useCallback(() => {
+    stopAlarm()
+    setAlarmActive(false)
+  }, [])
 
   useEffect(() => {
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('/sw.js').catch(console.error)
+
+      // Listen for emergency alarm from service worker push (PWA)
+      navigator.serviceWorker.addEventListener('message', (event) => {
+        if (event.data?.type === 'EMERGENCY_ALARM') {
+          triggerAlarm()
+        }
+      })
     }
 
-    supabase
-      .from('incidents')
-      .select('*')
-      .order('dispatched_at', { ascending: false })
-      .limit(30)
-      .then(({ data }) => {
-        setIncidents(data ?? [])
-        setLoading(false)
-      })
+    // Listen for FCM push (foreground) or notification tap (background/closed)
+    // detail from FCM data has: { url, tag } where tag = nro_parte
+    const onB100Emergency = async (e: Event) => {
+      const detail = (e as CustomEvent).detail
+      const nroParte = detail?.tag ?? detail?.nro_parte
+      if (nroParte) {
+        // Fetch full incident so voice announcement has all data
+        const { data } = await supabase
+          .from('incidents')
+          .select('*')
+          .eq('nro_parte', nroParte)
+          .single()
+        triggerAlarm(data as Incident ?? undefined)
+      } else {
+        triggerAlarm(undefined)
+      }
+    }
+    window.addEventListener('b100-emergency', onB100Emergency as EventListener)
 
-    const channel = supabase
+    // Try to init AudioContext immediately (works for installed PWAs).
+    // Also re-init on first touch as fallback for browser tabs.
+    initAlarm()
+    document.addEventListener('click', initAlarm, { once: true })
+    document.addEventListener('touchstart', initAlarm, { once: true })
+
+    // Fetch incidents
+    Promise.resolve(
+      supabase
+        .from('incidents')
+        .select('*')
+        .order('dispatched_at', { ascending: false })
+        .limit(30)
+    ).then(({ data }) => {
+      setIncidents(data ?? [])
+      setLoading(false)
+    }).catch((err) => {
+      console.error('Failed to load incidents:', err)
+      setLoading(false)
+    })
+
+    // Fetch company status
+    Promise.resolve(
+      supabase
+        .from('company_status')
+        .select('*')
+        .eq('id', 'B-100')
+        .single()
+    ).then(({ data }) => {
+      if (data) setCompanyStatus(data as CompanyStatus)
+    }).catch(() => {})
+
+    // Realtime: incidents
+    const incidentsChannel = supabase
       .channel('incidents-realtime')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'incidents' }, payload => {
         if (payload.eventType === 'INSERT') {
-          setIncidents(prev => [payload.new as Incident, ...prev])
+          const newIncident = payload.new as Incident
+          setIncidents(prev => [newIncident, ...prev])
+          // Play alarm with voice announcement for new incidents
+          triggerAlarm(newIncident)
         } else if (payload.eventType === 'UPDATE') {
           setIncidents(prev =>
             prev.map(i => i.id === (payload.new as Incident).id ? payload.new as Incident : i)
@@ -182,7 +337,21 @@ export default function HomePage() {
       })
       .subscribe()
 
-    return () => { supabase.removeChannel(channel) }
+    // Realtime: company status
+    const statusChannel = supabase
+      .channel('company-status-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'company_status' }, payload => {
+        if (payload.new) setCompanyStatus(payload.new as CompanyStatus)
+      })
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(incidentsChannel)
+      supabase.removeChannel(statusChannel)
+      window.removeEventListener('b100-emergency', onB100Emergency)
+      stopAlarm()
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const active = incidents.filter(i => i.status === 'ATENDIENDO')
@@ -190,6 +359,32 @@ export default function HomePage() {
 
   return (
     <main className="max-w-lg mx-auto px-4 py-6">
+      {/* Alarm banner — shows when siren is active */}
+      {alarmActive && active.length > 0 && (() => {
+        const latest = active[0]
+        const alert = alertPhrase(latest.type)
+        const units = latest.units
+          .filter(u => (B100_UNITS as readonly string[]).includes(u))
+          .map(u => unitName(u))
+        return (
+          <div className="fixed inset-x-0 top-0 z-50 bg-red-600 animate-pulse">
+            <div className="max-w-lg mx-auto px-4 py-3">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-white font-black text-base">🚨 {alert}</span>
+                <button
+                  onClick={dismissAlarm}
+                  className="bg-white/20 text-white text-xs font-bold px-4 py-1.5 rounded-full active:bg-white/30 shrink-0"
+                >
+                  SILENCIAR
+                </button>
+              </div>
+              <p className="text-white/90 text-sm font-bold">{units.join(' | ')}</p>
+              <p className="text-white/70 text-xs">{latest.address}</p>
+            </div>
+          </div>
+        )
+      })()}
+
       <div className="flex items-center gap-3 mb-6">
         <div className="w-10 h-10 rounded-full bg-red-600 flex items-center justify-center text-xl">
           🚒
@@ -202,6 +397,10 @@ export default function HomePage() {
 
       <div className="mb-6">
         <AlarmButton />
+      </div>
+
+      <div className="mb-6">
+        <CompanyStatusPanel status={companyStatus} />
       </div>
 
       {active.length > 0 && (

@@ -1,8 +1,8 @@
 // B100 Service Worker
 // Handles push notifications and offline caching
 
-const CACHE_NAME = 'b100-v1'
-const OFFLINE_URLS = ['/', '/incidents']
+const CACHE_NAME = 'b100-v2'
+const OFFLINE_URLS = ['/']
 
 // ─── Install: cache offline pages ───────────────────────────────────────────
 self.addEventListener('install', event => {
@@ -28,7 +28,9 @@ self.addEventListener('fetch', event => {
 
   event.respondWith(
     fetch(event.request).catch(() =>
-      caches.match(event.request).then(r => r || caches.match('/'))
+      caches.match(event.request)
+        .then(r => r || caches.match('/'))
+        .then(r => r || new Response('Offline', { status: 503, headers: { 'Content-Type': 'text/plain' } }))
     )
   )
 })
@@ -37,23 +39,37 @@ self.addEventListener('fetch', event => {
 self.addEventListener('push', event => {
   if (!event.data) return
 
-  const payload = event.data.json()
+  let payload
+  try {
+    payload = event.data.json()
+  } catch {
+    payload = { title: '🚨 B100 Emergencia', body: event.data.text() || 'Nueva emergencia' }
+  }
   const { title, body, url, tag, icon } = payload
 
   event.waitUntil(
-    self.registration.showNotification(title, {
+    // Alert any open app window to play loud alarm sound
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true })
+      .then(clients => {
+        clients.forEach(client => {
+          client.postMessage({ type: 'EMERGENCY_ALARM', payload })
+        })
+      })
+      .then(() => self.registration.showNotification(title, {
       body,
       icon: icon || '/icons/icon-192.png',
       badge: '/icons/badge-72.png',
       tag,
       data: { url },
       requireInteraction: true,    // stays visible until dismissed
-      vibrate: [300, 100, 300, 100, 600],  // SOS-like pattern
+      renotify: true,              // re-alert even if same tag exists
+      silent: false,               // force sound on
+      vibrate: [300, 100, 300, 100, 300, 100, 600],  // SOS-like pattern
       actions: [
         { action: 'open', title: 'Ver emergencia' },
         { action: 'dismiss', title: 'Cerrar' },
       ],
-    })
+    }))
   )
 })
 
@@ -65,18 +81,18 @@ self.addEventListener('notificationclick', event => {
 
   const url = event.notification.data?.url || '/'
 
+  const targetUrl = new URL(url, self.location.origin).href
+
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then(windowClients => {
       // Focus existing window if open
       for (const client of windowClients) {
-        if (client.url.includes(self.location.origin)) {
-          client.focus()
-          client.navigate(url)
-          return
+        if (client.url.includes(self.location.origin) && 'focus' in client) {
+          return client.focus().then(c => c.navigate(targetUrl))
         }
       }
       // Otherwise open new window
-      return clients.openWindow(url)
+      return clients.openWindow(targetUrl)
     })
   )
 })
