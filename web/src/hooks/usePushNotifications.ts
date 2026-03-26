@@ -6,7 +6,7 @@ export type PushState = 'unsupported' | 'denied' | 'pending' | 'subscribed' | 'u
 
 // Detect if running inside the Capacitor native app (Android APK)
 function isCapacitorNative(): boolean {
-  return typeof window !== 'undefined' && !!(window as Record<string, unknown>).Capacitor
+  return typeof window !== 'undefined' && !!(window as unknown as Record<string, unknown>).Capacitor
 }
 
 export function usePushNotifications(userId?: string) {
