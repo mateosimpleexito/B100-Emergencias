@@ -261,13 +261,21 @@ export default function HomePage() {
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('/sw.js').catch(console.error)
 
-      // Listen for emergency alarm from service worker push
+      // Listen for emergency alarm from service worker push (PWA)
       navigator.serviceWorker.addEventListener('message', (event) => {
         if (event.data?.type === 'EMERGENCY_ALARM') {
           triggerAlarm()
         }
       })
     }
+
+    // Listen for FCM push received while app is in foreground (native APK)
+    const onB100Emergency = (e: Event) => {
+      const detail = (e as CustomEvent).detail
+      // detail may contain incident data from FCM payload
+      triggerAlarm(detail?.nro_parte ? detail as Incident : undefined)
+    }
+    window.addEventListener('b100-emergency', onB100Emergency)
 
     // Try to init AudioContext immediately (works for installed PWAs).
     // Also re-init on first touch as fallback for browser tabs.
@@ -329,6 +337,7 @@ export default function HomePage() {
     return () => {
       supabase.removeChannel(incidentsChannel)
       supabase.removeChannel(statusChannel)
+      window.removeEventListener('b100-emergency', onB100Emergency)
       stopAlarm()
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
