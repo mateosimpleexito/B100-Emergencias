@@ -243,9 +243,9 @@ export default function MapaEmergencias() {
 
       L.circleMarker([hLat, hLon], {
         renderer,
-        radius: 6,
+        radius: 8,
         fillColor: '#ef4444',
-        fillOpacity: 1,
+        fillOpacity: 0.9,
         color: '#ffffff',
         weight: 1.5,
         interactive: true,
@@ -351,26 +351,47 @@ export default function MapaEmergencias() {
           .addTo(waterLayerRef.current!)
       })
 
-      // Latest incident — fire in background, don't block geolocation start
+      // Active incident marker — only show ATENDIENDO, never closed ones
+      const placeEmergencyMarker = (inc: Incident) => {
+        if (!inc.lat || !inc.lng) return
+        if (emergencyMarkerRef.current) emergencyMarkerRef.current.remove()
+        emergencyMarkerRef.current = L.marker([inc.lat, inc.lng], {
+          icon: emergencyIcon(L, true),
+          zIndexOffset: 1500,
+        })
+          .bindPopup(buildEmergencyPopup(inc), { maxWidth: 260 })
+          .addTo(mapInstanceRef.current ?? map)
+      }
+
       supabase
         .from('incidents')
         .select('*')
+        .eq('status', 'ATENDIENDO')
         .not('lat', 'is', null)
         .not('lng', 'is', null)
         .order('dispatched_at', { ascending: false })
         .limit(1)
         .single()
-        .then(({ data: latestIncident }) => {
-          if (latestIncident?.lat && latestIncident?.lng) {
-            const inc = latestIncident as Incident
-            emergencyMarkerRef.current = L.marker([inc.lat!, inc.lng!], {
-              icon: emergencyIcon(L, inc.status === 'ATENDIENDO'),
-              zIndexOffset: 1500,
-            })
-              .bindPopup(buildEmergencyPopup(inc), { maxWidth: 260 })
-              .addTo(mapInstanceRef.current ?? map)
+        .then(({ data }) => { if (data) placeEmergencyMarker(data as Incident) })
+
+      // Realtime: update emergency marker when incidents change
+      supabase
+        .channel('map-incidents')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'incidents' }, payload => {
+          const inc = payload.new as Incident
+          if (payload.eventType === 'INSERT' && inc.status === 'ATENDIENDO') {
+            placeEmergencyMarker(inc)
+          } else if (payload.eventType === 'UPDATE') {
+            if (inc.status === 'CERRADO') {
+              // Remove marker if the active incident just got closed
+              emergencyMarkerRef.current?.remove()
+              emergencyMarkerRef.current = null
+            } else if (inc.status === 'ATENDIENDO' && inc.lat && inc.lng) {
+              placeEmergencyMarker(inc)
+            }
           }
         })
+        .subscribe()
 
       // Geolocation — starts immediately, in parallel with Supabase above
       if (navigator.geolocation) {

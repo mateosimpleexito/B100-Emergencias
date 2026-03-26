@@ -423,13 +423,17 @@ export default function HomePage() {
 
       <section>
         <h2 className="text-xs font-semibold text-zinc-400 uppercase tracking-wider mb-3">
-          Últimas 24 hs
+          Historial
         </h2>
         {loading ? (
           <div className="text-center text-zinc-500 py-8 text-sm">Cargando...</div>
         ) : incidents.length === 0 ? (
           <div className="text-center text-zinc-600 py-8 text-sm">
             Sin incidentes con unidades B100 en las últimas 24 hs
+          </div>
+        ) : closed.length === 0 ? (
+          <div className="text-center text-zinc-600 py-6 text-sm">
+            Sin incidentes cerrados recientes
           </div>
         ) : (
           closed.map(i => <IncidentCard key={i.id} incident={i} />)
