@@ -18,8 +18,8 @@ import HydrantQuickView from './HydrantQuickView'
 
 const CENTER: [number, number] = [-12.0964, -77.0428]
 const ZOOM = 15
-const HYDRANT_RADIUS_KM = 2
 const FALLBACK_RADIUS_KM = 1.5
+const RADIUS_OPTIONS = [1, 2, 5, 10] as const
 
 interface SelectedHydrant { idx: number; lat: number; lng: number }
 type GeoStatus = 'pending' | 'granted' | 'denied' | 'unavailable'
@@ -192,12 +192,15 @@ export default function MapaEmergencias() {
   const emergencyMarkerRef = useRef<import('leaflet').Marker | null>(null)
   const leafletRef = useRef<typeof import('leaflet') | null>(null)
   const canvasRendererRef = useRef<import('leaflet').Renderer | null>(null)
+  const userPosRef = useRef<{ lat: number; lng: number } | null>(null)
+  const hydrantRadiusRef = useRef(2)
 
   const [showHydrants, setShowHydrants] = useState(true)
   const [showFacilities, setShowFacilities] = useState(true)
   const [showWater, setShowWater] = useState(true)
   const [selectedInsurance, setSelectedInsurance] = useState<InsuranceType | null>(null)
   const [hydrantCount, setHydrantCount] = useState(0)
+  const [hydrantRadius, setHydrantRadius] = useState(2)
   const [selectedHydrant, setSelectedHydrant] = useState<SelectedHydrant | null>(null)
   const [editMode, setEditMode] = useState(false)
   const [geoStatus, setGeoStatus] = useState<GeoStatus>('pending')
@@ -257,6 +260,7 @@ export default function MapaEmergencias() {
 
   // ── Apply a geolocation position ─────────────────────────────────────────
   const applyPosition = useCallback((lat: number, lng: number) => {
+    userPosRef.current = { lat, lng }
     setGeoStatus('granted')
     setGeoRequesting(false)
     const map = mapInstanceRef.current
@@ -271,7 +275,7 @@ export default function MapaEmergencias() {
         zIndexOffset: 2000,
       }).addTo(map)
     }
-    void loadHydrantsNear(L, lat, lng, HYDRANT_RADIUS_KM)
+    void loadHydrantsNear(L, lat, lng, hydrantRadiusRef.current)
   }, [loadHydrantsNear])
 
   // ── Go to user location ──────────────────────────────────────────────────
@@ -300,6 +304,15 @@ export default function MapaEmergencias() {
       { enableHighAccuracy: false, timeout: 3000, maximumAge: 300000 }
     )
   }, [applyPosition, loadHydrantsNear])
+
+  // ── Change hydrant search radius ─────────────────────────────────────────
+  const changeRadius = useCallback((r: number) => {
+    hydrantRadiusRef.current = r
+    setHydrantRadius(r)
+    const L = leafletRef.current
+    const pos = userPosRef.current
+    if (L && pos) void loadHydrantsNear(L, pos.lat, pos.lng, r)
+  }, [loadHydrantsNear])
 
   // ── Init map ─────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -373,7 +386,7 @@ export default function MapaEmergencias() {
           } else {
             userMarkerRef.current.setLatLng([lat, lng])
           }
-          void loadHydrantsNear(L, lat, lng, HYDRANT_RADIUS_KM)
+          void loadHydrantsNear(L, lat, lng, hydrantRadiusRef.current)
         }
         const onDeny = () => {
           setGeoStatus('denied')
@@ -534,7 +547,7 @@ export default function MapaEmergencias() {
             >
               {geoRequesting && <span className="b100-spinner" />}
               {!geoRequesting && '📍 '}
-              {geoStatus === 'granted' ? `${HYDRANT_RADIUS_KM} km` : geoRequesting ? 'GPS...' : 'Activar'}
+              {geoStatus === 'granted' ? `${hydrantRadius} km` : geoRequesting ? 'GPS...' : 'Activar'}
             </button>
 
             <button
@@ -546,6 +559,28 @@ export default function MapaEmergencias() {
               ✏️ {editMode ? 'Edición ON' : 'Editar'}
             </button>
           </div>
+
+          {/* Hydrant radius selector — only when GPS is active */}
+          {geoStatus === 'granted' && (
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-zinc-500 shrink-0">Radio hidrantes:</span>
+              <div className="flex gap-1.5">
+                {RADIUS_OPTIONS.map(r => (
+                  <button
+                    key={r}
+                    onClick={() => changeRadius(r)}
+                    className={`px-2.5 py-1 rounded-md text-xs font-semibold transition-colors ${
+                      hydrantRadius === r
+                        ? 'bg-red-700 text-white'
+                        : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'
+                    }`}
+                  >
+                    {r} km
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Persistent GPS denied banner — always visible, can't be dismissed */}
           {showGeoBanner && (
