@@ -9,25 +9,15 @@ import {
   type InsuranceType,
   type MedicalFacility,
 } from '@/lib/emergency-map-data'
+import HIDRANTES_SEDAPAL from '@/lib/hidrantes-sedapal.json'
 
 // Lima center
 const CENTER: [number, number] = [-12.0964, -77.0428]
 const ZOOM = 13
 
-// Overpass API query for fire hydrants in Lima metro area
-const OVERPASS_URL =
-  'https://overpass-api.de/api/interpreter?data=' +
-  encodeURIComponent(`
-    [out:json][timeout:15];
-    node["emergency"="fire_hydrant"](-12.20,-77.15,-11.95,-76.90);
-    out body;
-  `)
-
 interface Hydrant {
-  id: number
-  lat: number
   lon: number
-  tags: Record<string, string>
+  lat: number
 }
 
 function facilityIcon(L: typeof import('leaflet'), f: MedicalFacility) {
@@ -132,20 +122,17 @@ export default function MapaEmergencias() {
       facilityLayerRef.current = L.layerGroup().addTo(map)
       mapInstanceRef.current = map
 
-      // Load hydrants
-      fetch(OVERPASS_URL)
-        .then(r => r.json())
-        .then((data: { elements: Hydrant[] }) => {
-          const icon = hydrantIcon(L)
-          data.elements.forEach(h => {
-            L.marker([h.lat, h.lon], { icon })
-              .bindPopup(`<b>🔴 Hidrante</b>${h.tags.colour ? `<br>Color: ${h.tags.colour}` : ''}`)
-              .addTo(hydrantLayerRef.current!)
-          })
-          setHydrantCount(data.elements.length)
-          setLoadingHydrants(false)
-        })
-        .catch(() => setLoadingHydrants(false))
+      // Load hydrants from SEDAPAL data (static, no API call needed)
+      const icon = hydrantIcon(L)
+      const hydrants = HIDRANTES_SEDAPAL.features as unknown as { geometry: { coordinates: [number, number] } }[]
+      hydrants.forEach(h => {
+        const [lon, lat] = h.geometry.coordinates
+        L.marker([lat, lon], { icon })
+          .bindPopup('<b>🔴 Hidrante SEDAPAL</b>')
+          .addTo(hydrantLayerRef.current!)
+      })
+      setHydrantCount(hydrants.length)
+      setLoadingHydrants(false)
 
       // Load facilities
       FACILITIES.forEach(f => {
