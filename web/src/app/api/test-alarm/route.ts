@@ -3,7 +3,7 @@ import { createServiceClient } from '@/lib/supabase'
 import { sendFCMToToken, sendPushToSubscription } from '@/lib/push'
 
 export async function GET(req: NextRequest) {
-  const secret = req.headers.get('x-test-secret')
+  const secret = req.headers.get('x-test-secret') ?? req.nextUrl.searchParams.get('secret')
   if (secret !== process.env.SCRAPER_SECRET) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
