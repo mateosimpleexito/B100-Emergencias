@@ -25,13 +25,28 @@ export async function POST(req: NextRequest) {
 
   const payload = buildIncidentPayload(incident)
 
-  // Send to all subscribers in parallel; ignore individual failures
+  // Send to all subscribers in parallel
   const results = await Promise.allSettled(
     subs.map(sub => sendPushToSubscription(sub, payload))
   )
 
-  const sent = results.filter(r => r.status === 'fulfilled').length
-  const failed = results.filter(r => r.status === 'rejected').length
+  // Clean up expired subscriptions
+  const expiredEndpoints = subs
+    .filter((_, i) => {
+      const r = results[i]
+      return r.status === 'fulfilled' && r.value.expired
+    })
+    .map(s => s.endpoint)
 
-  return NextResponse.json({ sent, failed })
+  if (expiredEndpoints.length > 0) {
+    await supabase
+      .from('push_subscriptions')
+      .update({ active: false })
+      .in('endpoint', expiredEndpoints)
+  }
+
+  const sent = results.filter(r => r.status === 'fulfilled' && (r.value as { sent: boolean }).sent).length
+  const failed = results.length - sent
+
+  return NextResponse.json({ sent, failed, expired: expiredEndpoints.length })
 }

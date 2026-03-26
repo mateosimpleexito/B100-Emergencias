@@ -295,30 +295,25 @@ export default function HomePage() {
     document.addEventListener('touchstart', initAlarm, { once: true })
 
     // Fetch incidents
-    Promise.resolve(
-      supabase
-        .from('incidents')
-        .select('*')
-        .order('dispatched_at', { ascending: false })
-        .limit(30)
-    ).then(({ data }) => {
-      setIncidents(data ?? [])
-      setLoading(false)
-    }).catch((err) => {
-      console.error('Failed to load incidents:', err)
-      setLoading(false)
-    })
+    supabase
+      .from('incidents')
+      .select('*')
+      .order('dispatched_at', { ascending: false })
+      .limit(30)
+      .then(({ data }) => {
+        setIncidents(data ?? [])
+        setLoading(false)
+      })
 
     // Fetch company status
-    Promise.resolve(
-      supabase
-        .from('company_status')
-        .select('*')
-        .eq('id', 'B-100')
-        .single()
-    ).then(({ data }) => {
-      if (data) setCompanyStatus(data as CompanyStatus)
-    }).catch(() => {})
+    supabase
+      .from('company_status')
+      .select('*')
+      .eq('id', 'B-100')
+      .single()
+      .then(({ data }) => {
+        if (data) setCompanyStatus(data as CompanyStatus)
+      })
 
     // Realtime: incidents
     const incidentsChannel = supabase
@@ -367,7 +362,7 @@ export default function HomePage() {
           .filter(u => (B100_UNITS as readonly string[]).includes(u))
           .map(u => unitName(u))
         return (
-          <div className="fixed inset-x-0 top-0 z-50 bg-red-600 animate-pulse">
+          <div role="alert" aria-live="assertive" className="fixed inset-x-0 top-0 z-50 bg-red-600 animate-pulse">
             <div className="max-w-lg mx-auto px-4 py-3">
               <div className="flex items-center justify-between mb-1">
                 <span className="text-white font-black text-base">🚨 {alert}</span>
@@ -393,6 +388,13 @@ export default function HomePage() {
           <h1 className="text-xl font-bold leading-none">B100 Emergencias</h1>
           <p className="text-xs text-zinc-400">Bomberos San Isidro 100</p>
         </div>
+        <Link
+          href="/estadisticas"
+          className="flex flex-col items-center justify-center w-12 h-12 rounded-xl bg-zinc-800 hover:bg-zinc-700 transition-colors text-xl leading-none"
+          title="Estadísticas"
+        >
+          📊
+        </Link>
         <Link
           href="/mapa"
           className="flex flex-col items-center justify-center w-12 h-12 rounded-xl bg-zinc-800 hover:bg-zinc-700 transition-colors text-xl leading-none"

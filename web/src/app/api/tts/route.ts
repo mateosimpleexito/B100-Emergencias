@@ -47,9 +47,11 @@ async function getAccessToken(): Promise<string> {
   const serviceAccountJson = process.env.FIREBASE_SERVICE_ACCOUNT_JSON
   if (!serviceAccountJson) throw new Error('No service account configured')
 
-  const sa = JSON.parse(serviceAccountJson) as {
-    client_email: string
-    private_key: string
+  let sa: { client_email: string; private_key: string }
+  try {
+    sa = JSON.parse(serviceAccountJson)
+  } catch {
+    throw new Error('Invalid FIREBASE_SERVICE_ACCOUNT_JSON — not valid JSON')
   }
 
   const now = Math.floor(Date.now() / 1000)
