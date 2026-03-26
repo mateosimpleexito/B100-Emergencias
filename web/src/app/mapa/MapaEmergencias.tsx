@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useCallback } from 'react'
 import {
   FACILITIES,
   FACILITY_COLORS,
@@ -10,6 +10,7 @@ import {
   type MedicalFacility,
 } from '@/lib/emergency-map-data'
 import HIDRANTES_SEDAPAL from '@/lib/hidrantes-sedapal.json'
+import HydrantPanel from './HydrantPanel'
 
 // Lima center
 const CENTER: [number, number] = [-12.0964, -77.0428]
@@ -18,6 +19,12 @@ const ZOOM = 13
 interface Hydrant {
   lon: number
   lat: number
+}
+
+interface SelectedHydrant {
+  idx: number
+  lat: number
+  lng: number
 }
 
 function facilityIcon(L: typeof import('leaflet'), f: MedicalFacility) {
@@ -98,6 +105,8 @@ export default function MapaEmergencias() {
   const [selectedInsurance, setSelectedInsurance] = useState<InsuranceType | null>(null)
   const [loadingHydrants, setLoadingHydrants] = useState(true)
   const [hydrantCount, setHydrantCount] = useState(0)
+  const [selectedHydrant, setSelectedHydrant] = useState<SelectedHydrant | null>(null)
+  const [editMode, setEditMode] = useState(false)
 
   // Init map
   useEffect(() => {
@@ -122,13 +131,15 @@ export default function MapaEmergencias() {
       facilityLayerRef.current = L.layerGroup().addTo(map)
       mapInstanceRef.current = map
 
-      // Load hydrants from SEDAPAL data (static, no API call needed)
+      // Load hydrants from SEDAPAL data
       const icon = hydrantIcon(L)
       const hydrants = HIDRANTES_SEDAPAL.features as unknown as { geometry: { coordinates: [number, number] } }[]
-      hydrants.forEach(h => {
+      hydrants.forEach((h, idx) => {
         const [lon, lat] = h.geometry.coordinates
-        L.marker([lat, lon], { icon })
-          .bindPopup('<b>🔴 Hidrante SEDAPAL</b>')
+        L.marker([lat, lon], { icon, draggable: false })
+          .on('click', () => {
+            setSelectedHydrant({ idx, lat, lng: lon })
+          })
           .addTo(hydrantLayerRef.current!)
       })
       setHydrantCount(hydrants.length)
@@ -245,6 +256,16 @@ export default function MapaEmergencias() {
         {/* Map */}
         <div ref={mapRef} className="flex-1" />
       </div>
+
+      {/* Hydrant detail/report panel */}
+      {selectedHydrant && (
+        <HydrantPanel
+          hydrantIdx={selectedHydrant.idx}
+          lat={selectedHydrant.lat}
+          lng={selectedHydrant.lng}
+          onClose={() => setSelectedHydrant(null)}
+        />
+      )}
     </>
   )
 }
