@@ -26,24 +26,19 @@ export async function POST(req: NextRequest, { params }: { params: Params }) {
     return NextResponse.json({ error: 'El incidente ya está cerrado' }, { status: 409 })
   }
 
+  // Try with close_note first; if column doesn't exist yet, retry without it
   const { error } = await supabase
     .from('incidents')
-    .update({
-      status: 'CERRADO',
-      close_note,
-      updated_at: new Date().toISOString(),
-    })
+    .update({ status: 'CERRADO', close_note })
     .eq('nro_parte', id)
 
   if (error) {
-    // Retry without close_note in case the column doesn't exist yet
     const { error: error2 } = await supabase
       .from('incidents')
-      .update({ status: 'CERRADO', updated_at: new Date().toISOString() })
+      .update({ status: 'CERRADO' })
       .eq('nro_parte', id)
-
     if (error2) return NextResponse.json({ error: error2.message }, { status: 500 })
   }
 
-  return NextResponse.json({ ok: true, close_note })
+  return NextResponse.json({ ok: true })
 }

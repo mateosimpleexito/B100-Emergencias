@@ -35,15 +35,14 @@ export async function GET(req: NextRequest) {
     .update({
       status: 'CERRADO',
       close_note: 'Cerrado automáticamente — más de 24h sin actualización en SGONORTE',
-      updated_at: new Date().toISOString(),
     })
     .in('nro_parte', stale.map(i => i.nro_parte))
 
-  // Retry without close_note if column doesn't exist
+  // Retry without close_note if column doesn't exist yet
   if (updateError) {
     await supabase
       .from('incidents')
-      .update({ status: 'CERRADO', updated_at: new Date().toISOString() })
+      .update({ status: 'CERRADO' })
       .in('nro_parte', stale.map(i => i.nro_parte))
   }
 

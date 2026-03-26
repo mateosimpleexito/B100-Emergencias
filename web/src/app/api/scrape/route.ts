@@ -120,11 +120,11 @@ export async function POST(req: NextRequest) {
           console.log(`[scrape] FCM sent: ${fcmSent}/${fcmTokens.length}`)
         }
       }
-    } else if (existingStatus !== row.status) {
-      // Status changed (e.g. ATENDIENDO → CERRADO)
+    } else if (existingStatus === 'ATENDIENDO' && row.status === 'CERRADO') {
+      // SGONORTE confirmed closed — update. Never reopen a manually-closed incident.
       await supabase
         .from('incidents')
-        .update({ status: row.status, updated_at: new Date().toISOString() })
+        .update({ status: 'CERRADO' })
         .eq('nro_parte', row.nro_parte)
       updatedCount++
     }
