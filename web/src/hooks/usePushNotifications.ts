@@ -70,10 +70,14 @@ export function usePushNotifications(userId?: string) {
         setTimeout(resolve, 5000)
       })
 
-      // Handle incoming FCM push while app is open — play alarm
+      // Handle incoming FCM push while app is in foreground
       PushNotifications.addListener('pushNotificationReceived', (notification) => {
-        // App is in foreground — notification.data may contain incident info
         window.dispatchEvent(new CustomEvent('b100-emergency', { detail: notification.data }))
+      })
+
+      // Handle tap on notification (app was in background/closed) — play alarm on open
+      PushNotifications.addListener('pushNotificationActionPerformed', (action) => {
+        window.dispatchEvent(new CustomEvent('b100-emergency', { detail: action.notification.data }))
       })
 
       return true
