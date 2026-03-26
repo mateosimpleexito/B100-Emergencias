@@ -181,6 +181,7 @@ export default function MapaEmergencias() {
   const [geoStatus, setGeoStatus] = useState<GeoStatus>('pending')
   const [geoDismissed, setGeoDismissed] = useState(false)
   const [permPermanentDenied, setPermPermanentDenied] = useState(false)
+  const [geoRequesting, setGeoRequesting] = useState(false)
 
   // ── Load hydrants near a point ───────────────────────────────────────────
   const loadHydrantsNear = useCallback((
@@ -207,12 +208,12 @@ export default function MapaEmergencias() {
   // ── Go to user location ──────────────────────────────────────────────────
   const goToUser = useCallback(() => {
     if (!navigator.geolocation) { setGeoStatus('unavailable'); return }
-    setGeoStatus('pending')
+    setGeoRequesting(true)
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         const { latitude: lat, longitude: lng } = pos.coords
         setGeoStatus('granted')
-        setGeoDismissed(false)
+        setGeoRequesting(false)
 
         const map = mapInstanceRef.current
         const L = leafletRef.current
@@ -233,6 +234,7 @@ export default function MapaEmergencias() {
       },
       () => {
         setGeoStatus('denied')
+        setGeoRequesting(false)
         const L = leafletRef.current
         if (L) loadHydrantsNear(L, CENTER[0], CENTER[1], FALLBACK_RADIUS_KM)
       },
@@ -372,8 +374,10 @@ export default function MapaEmergencias() {
     })
   }, [showFacilities, selectedInsurance])
 
-  const showGeoOverlay = geoStatus === 'denied' && !geoDismissed
-  const showGeoBanner = geoStatus === 'denied' && geoDismissed
+  // overlay: solo cuando fue denegado y el usuario no lo cerró todavía
+  // Una vez que toca "Permitir" se cierra inmediatamente (geoDismissed=true)
+  const showGeoOverlay = geoStatus === 'denied' && !geoDismissed && !geoRequesting
+  const showGeoBanner = geoStatus === 'denied' && (geoDismissed || geoRequesting)
 
   return (
     <>
@@ -438,17 +442,18 @@ export default function MapaEmergencias() {
             {/* GPS button */}
             <button
               onClick={goToUser}
+              disabled={geoRequesting}
               className={`ml-auto flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors border ${
                 geoStatus === 'granted'
                   ? 'bg-blue-700 text-white border-blue-500'
-                  : geoStatus === 'denied'
-                  ? 'bg-yellow-700/60 text-yellow-300 border-yellow-600 animate-pulse'
-                  : geoStatus === 'pending'
+                  : geoRequesting
                   ? 'bg-zinc-800 text-zinc-400 border-zinc-700 animate-pulse'
-                  : 'bg-zinc-800 text-zinc-500 border-zinc-700'
+                  : geoStatus === 'denied'
+                  ? 'bg-yellow-700/60 text-yellow-300 border-yellow-600'
+                  : 'bg-zinc-800 text-zinc-400 border-zinc-700 animate-pulse'
               }`}
             >
-              📍 {geoStatus === 'granted' ? `${HYDRANT_RADIUS_KM} km` : geoStatus === 'denied' ? 'Activar' : '…'}
+              📍 {geoStatus === 'granted' ? `${HYDRANT_RADIUS_KM} km` : geoRequesting ? '…' : geoStatus === 'denied' ? 'Activar' : '…'}
             </button>
 
             <button
@@ -464,16 +469,19 @@ export default function MapaEmergencias() {
           {/* Persistent GPS denied banner — always visible, can't be dismissed */}
           {showGeoBanner && (
             <button
-              onClick={() => setGeoDismissed(false)}
+              onClick={() => { if (!geoRequesting) setGeoDismissed(false) }}
+              disabled={geoRequesting}
               className="w-full flex items-center gap-2 bg-yellow-900/50 border border-yellow-700/60 rounded-lg px-3 py-2 text-left"
             >
-              <span className="text-base shrink-0">📍</span>
+              <span className="text-base shrink-0">{geoRequesting ? '⏳' : '📍'}</span>
               <span className="flex-1 text-yellow-300 text-xs leading-tight">
-                {permPermanentDenied
-                  ? 'Ubicación bloqueada en ajustes del sistema — tocá para activarla'
-                  : 'Ubicación desactivada — los hidrantes mostrados pueden no ser de tu zona'}
+                {geoRequesting
+                  ? 'Solicitando ubicación...'
+                  : permPermanentDenied
+                  ? 'Ubicación bloqueada — tocá para activarla'
+                  : 'Ubicación desactivada — los hidrantes pueden no ser de tu zona'}
               </span>
-              <span className="text-yellow-500 text-xs font-bold shrink-0">Activar →</span>
+              {!geoRequesting && <span className="text-yellow-500 text-xs font-bold shrink-0">Activar →</span>}
             </button>
           )}
 
@@ -520,7 +528,7 @@ export default function MapaEmergencias() {
                 </p>
 
                 <button
-                  onClick={goToUser}
+                  onClick={() => { setGeoDismissed(true); goToUser() }}
                   className="w-full bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-white font-bold py-3.5 rounded-xl mb-3 text-sm transition-colors"
                 >
                   📍 Permitir ubicación
