@@ -3,7 +3,7 @@ import { notFound } from 'next/navigation'
 import Link from 'next/link'
 import { B100_UNITS } from '@/types'
 import IncidentMap from './IncidentMap'
-import { getResourceGroups, getSecurityGroup } from '@/lib/emergency-resources'
+import { getResourceGroups } from '@/lib/emergency-resources'
 import type { ResourceGroup } from '@/lib/emergency-resources'
 
 interface Props {
@@ -80,9 +80,7 @@ export default async function IncidentPage({ params }: Props) {
   const isActive = incident.status === 'ATENDIENDO'
   const typeShort = incident.type.split('/')[0].trim()
   const typeDetail = incident.type.split('/').slice(1).map((s: string) => s.trim()).filter(Boolean)
-  const typeGroups = getResourceGroups(incident.type)
-  const securityGroup = getSecurityGroup(incident.district)
-  const resourceGroups = securityGroup ? [securityGroup, ...typeGroups] : typeGroups
+  const resourceGroups = getResourceGroups(incident.type, incident.district)
 
   const dispatchedAt = new Date(incident.dispatched_at).toLocaleString('es-PE', {
     timeZone: 'America/Lima',

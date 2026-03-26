@@ -1,4 +1,7 @@
-// Emergency resources shown on incident detail page based on incident type
+// Emergency resources shown on incident detail page.
+// Order is operationally driven: what you need to act on FIRST comes first.
+
+import { getDistrictContacts } from '@/lib/district-contacts'
 
 export interface Resource {
   label: string
@@ -14,106 +17,163 @@ export interface ResourceGroup {
   items: Resource[]
 }
 
-function phone(number: string): string {
+function tel(number: string): string {
   return `tel:${number.replace(/[^0-9+]/g, '')}`
 }
+
+// ── Recursos fijos ────────────────────────────────────────────────────────────
 
 const CALIDDA: Resource = {
   label: 'Cálidda',
   detail: 'Gas natural — emergencias 24h',
   phone: '0800-10-110',
-  url: phone('08001 0110'),
+  url: tel('08001 0110'),
   color: 'orange',
 }
-
 const OSINERGMIN: Resource = {
   label: 'OSINERGMIN',
   detail: 'GLP / electricidad / hidrocarburos',
   phone: '0800-11-022',
-  url: phone('08001 1022'),
+  url: tel('08001 1022'),
   color: 'yellow',
 }
-
 const ENEL: Resource = {
   label: 'Enel',
-  detail: 'Corte de electricidad — Lima Norte/Centro',
+  detail: 'Corte electricidad — Lima Norte/Centro',
   phone: '0800-0-0012',
-  url: phone('0800 00012'),
+  url: tel('0800 00012'),
   color: 'yellow',
 }
-
 const LUZ_DEL_SUR: Resource = {
   label: 'Luz del Sur',
-  detail: 'Corte de electricidad — Lima Sur',
+  detail: 'Corte electricidad — Lima Sur',
   phone: '0800-0-0011',
-  url: phone('0800 00011'),
+  url: tel('0800 00011'),
   color: 'yellow',
 }
-
 const SEDAPAL: Resource = {
   label: 'Sedapal',
-  detail: 'Agua potable / hidrantes',
+  detail: 'Agua potable / presión de hidrantes',
   phone: '0800-1-0900',
-  url: phone('0800 10900'),
+  url: tel('0800 10900'),
   color: 'blue',
 }
-
 const SAMU: Resource = {
   label: 'SAMU',
   detail: 'Soporte avanzado de vida',
   phone: '106',
-  url: phone('106'),
+  url: tel('106'),
   color: 'red',
 }
-
-const PNP: Resource = {
-  label: 'PNP',
+const PNP_NACIONAL: Resource = {
+  label: 'PNP — Emergencias',
   detail: 'Policía Nacional del Perú',
   phone: '105',
-  url: phone('105'),
+  url: tel('105'),
   color: 'blue',
 }
-
 const INDECI: Resource = {
   label: 'INDECI',
-  detail: 'Defensa Civil',
+  detail: 'Defensa Civil nacional',
   phone: '115',
-  url: phone('115'),
+  url: tel('115'),
   color: 'green',
 }
-
 const DIGESA: Resource = {
   label: 'DIGESA',
   detail: 'Sustancias peligrosas / salud ambiental',
   phone: '(01) 631-4480',
-  url: phone('016314480'),
+  url: tel('016314480'),
   color: 'zinc',
 }
-
 const HN_REBAGLIATI: Resource = {
   label: 'H. Rebagliati (EsSalud)',
   detail: 'Referencia trauma — Jesús María',
   phone: '(01) 265-4901',
-  url: phone('012654901'),
+  url: tel('012654901'),
   color: 'red',
 }
-
 const HN_CASIMIRO: Resource = {
   label: 'H. Casimiro Ulloa',
   detail: 'Emergencias adultos — Miraflores',
   phone: '(01) 241-2323',
-  url: phone('012412323'),
+  url: tel('012412323'),
   color: 'red',
 }
 
-// Map incident type keywords → resource groups
-const TYPE_RESOURCES: Array<{
+// ── Security group builder (district-aware) ───────────────────────────────────
+
+function buildSecurityGroup(district: string | null): ResourceGroup {
+  const contacts = getDistrictContacts(district)
+
+  if (!contacts) {
+    return {
+      title: 'Seguridad',
+      icon: '🚔',
+      items: [PNP_NACIONAL],
+    }
+  }
+
+  return {
+    title: `Seguridad — ${contacts.district}`,
+    icon: '🚔',
+    items: [
+      {
+        label: `Serenazgo ${contacts.district}`,
+        detail: contacts.serenazgo.whatsapp
+          ? `WhatsApp: ${contacts.serenazgo.whatsapp}`
+          : 'Servicio municipal 24h',
+        phone: contacts.serenazgo.phone,
+        url: tel(contacts.serenazgo.phone),
+        color: 'green',
+      },
+      ...contacts.pnp.map(c => ({
+        label: c.name,
+        detail: `Comisaría — ${contacts.district}`,
+        phone: c.phone,
+        url: tel(c.phone),
+        color: 'blue' as const,
+      })),
+      PNP_NACIONAL,
+    ],
+  }
+}
+
+// ── Ordered groups por tipo de incidente ─────────────────────────────────────
+//
+// INCENDIO:          servicios (agua/gas/luz) → seguridad → médico
+// MATPEL:            seguridad (evacuar) → técnico (gas/OSINERGMIN) → salud ambiental → médico
+// ELÉCTRICO:         técnico (eléctrico) → seguridad
+// ACCIDENTE:         médico → PNP tráfico → hospitales referencia
+// EMERGENCIA MÉDICA: médico → hospitales → seguridad (solo si violencia)
+// RESCATE/DERRUMBE:  defensa civil → seguridad → médico
+
+type TypeEntry = {
   keywords: string[]
-  groups: ResourceGroup[]
-}> = [
+  build: (securityGroup: ResourceGroup) => ResourceGroup[]
+}
+
+const TYPE_ENTRIES: TypeEntry[] = [
+  {
+    keywords: ['INCENDIO'],
+    build: (sec) => [
+      {
+        title: 'Servicios públicos',
+        icon: '🔧',
+        items: [SEDAPAL, CALIDDA, ENEL, LUZ_DEL_SUR],
+      },
+      sec,
+      {
+        title: 'Apoyo médico',
+        icon: '🚑',
+        items: [SAMU],
+      },
+    ],
+  },
   {
     keywords: ['MATPEL', 'MATERIAL PELIGROSO', 'GAS', 'QUIMICO', 'DERRAME', 'FUGA'],
-    groups: [
+    build: (sec) => [
+      sec,
       {
         title: 'Gas y combustibles',
         icon: '🔶',
@@ -132,48 +192,36 @@ const TYPE_RESOURCES: Array<{
     ],
   },
   {
-    keywords: ['INCENDIO'],
-    groups: [
-      {
-        title: 'Servicios públicos',
-        icon: '🔧',
-        items: [SEDAPAL, CALIDDA, ENEL],
-      },
-      {
-        title: 'Apoyo',
-        icon: '🚑',
-        items: [SAMU, PNP],
-      },
-    ],
-  },
-  {
     keywords: ['ELECTRICO', 'ELECTRICIDAD', 'ELECTRICA'],
-    groups: [
+    build: (sec) => [
       {
         title: 'Electricidad',
         icon: '⚡',
         items: [ENEL, LUZ_DEL_SUR, OSINERGMIN],
       },
+      sec,
     ],
   },
   {
     keywords: ['ACCIDENTE', 'VEHICULAR', 'TRANSITO', 'CHOQUE'],
-    groups: [
+    build: (sec) => [
       {
         title: 'Emergencia médica',
         icon: '🚑',
-        items: [SAMU, HN_REBAGLIATI],
+        items: [SAMU, HN_CASIMIRO, HN_REBAGLIATI],
       },
       {
-        title: 'Autoridades',
+        title: 'Control de tránsito',
         icon: '🚔',
-        items: [PNP],
+        items: [
+          ...sec.items.filter(i => i.label !== 'Serenazgo ' + sec.title.split('— ')[1]),
+        ],
       },
     ],
   },
   {
     keywords: ['MEDICA', 'MEDICO', 'SALUD', 'PARTO', 'PCR', 'CARDIAC'],
-    groups: [
+    build: () => [
       {
         title: 'Emergencia médica',
         icon: '🏥',
@@ -183,72 +231,37 @@ const TYPE_RESOURCES: Array<{
   },
   {
     keywords: ['RESCATE', 'ATRAPADO', 'DERRUMBE', 'COLAPSO'],
-    groups: [
+    build: (sec) => [
       {
-        title: 'Apoyo',
+        title: 'Defensa Civil',
         icon: '🆘',
-        items: [PNP, INDECI, SAMU],
+        items: [INDECI],
+      },
+      sec,
+      {
+        title: 'Apoyo médico',
+        icon: '🚑',
+        items: [SAMU],
       },
     ],
   },
 ]
 
-export function getResourceGroups(incidentType: string): ResourceGroup[] {
+// ── Public API ────────────────────────────────────────────────────────────────
+
+export function getResourceGroups(
+  incidentType: string,
+  district: string | null
+): ResourceGroup[] {
   const upper = incidentType.toUpperCase()
-  for (const entry of TYPE_RESOURCES) {
+  const securityGroup = buildSecurityGroup(district)
+
+  for (const entry of TYPE_ENTRIES) {
     if (entry.keywords.some(k => upper.includes(k))) {
-      return entry.groups
-    }
-  }
-  return []
-}
-
-// Build a district-aware security group (Serenazgo + PNP comisarías)
-// to prepend to the resource panel
-import { getDistrictContacts } from '@/lib/district-contacts'
-
-export function getSecurityGroup(district: string | null): ResourceGroup | null {
-  const contacts = getDistrictContacts(district)
-
-  const pnpNacional: Resource = {
-    label: 'PNP — Emergencias',
-    detail: 'Policía Nacional del Perú',
-    phone: '105',
-    url: phone('105'),
-    color: 'blue',
-  }
-
-  if (!contacts) {
-    return {
-      title: 'Seguridad',
-      icon: '🚔',
-      items: [pnpNacional],
+      return entry.build(securityGroup)
     }
   }
 
-  const items: Resource[] = [
-    {
-      label: `Serenazgo ${contacts.district}`,
-      detail: contacts.serenazgo.whatsapp
-        ? `WhatsApp: ${contacts.serenazgo.whatsapp}`
-        : 'Servicio municipal 24h',
-      phone: contacts.serenazgo.phone,
-      url: phone(contacts.serenazgo.phone),
-      color: 'green',
-    },
-    ...contacts.pnp.map(c => ({
-      label: c.name,
-      detail: `Distrito ${contacts.district}`,
-      phone: c.phone,
-      url: phone(c.phone),
-      color: 'blue' as const,
-    })),
-    pnpNacional,
-  ]
-
-  return {
-    title: `Seguridad — ${contacts.district}`,
-    icon: '🚔',
-    items,
-  }
+  // Tipo desconocido: seguridad primero como mínimo útil
+  return [securityGroup]
 }
