@@ -13,6 +13,9 @@ export interface WaterSource {
   lng: number
   type: WaterSourceType
   district?: string
+  address?: string      // Dirección exacta (solo puntos operativos)
+  phone?: string        // Teléfono de contacto
+  hours?: string        // Horario de atención
   notes?: string
 }
 
@@ -54,72 +57,92 @@ export const WATER_SOURCES: WaterSource[] = [
   },
 
   // ── Puntos de llenado SEDAPAL — San Isidro ───────────────────────────────
-  // Fuente: El Comercio / SEDAPAL. Verificar coordenadas exactas en ArcGIS SEDAPAL.
 
   {
-    name: 'SEDAPAL · Av. Belén cdra. 10 (alt. Av. Pezet)',
+    name: 'SEDAPAL Llenado · Av. Belén cdra. 10',
     lat: -12.0960,
     lng: -77.0380,
     type: 'cistern_fill',
     district: 'San Isidro',
-    notes: 'Grifa de llenado. Confirmar disponibilidad: SEDAPAL 317-8000.',
+    address: 'Av. Belén cdra. 10 (alt. Av. Pezet), San Isidro',
+    phone: '317-8000',
+    hours: '24h — emergencias',
+    notes: 'Grifa de llenado para camiones cisterna. Confirmar disponibilidad antes de ir.',
   },
   {
-    name: 'SEDAPAL · Av. Javier Prado / Porras Osores',
+    name: 'SEDAPAL Llenado · Av. Javier Prado / Porras Osores',
     lat: -12.0886,
     lng: -77.0291,
     type: 'cistern_fill',
     district: 'San Isidro',
-    notes: 'Grifa de llenado. Confirmar disponibilidad: SEDAPAL 317-8000.',
+    address: 'Av. Javier Prado Este / Porras Osores, San Isidro',
+    phone: '317-8000',
+    hours: '24h — emergencias',
+    notes: 'Grifa de llenado para camiones cisterna. Confirmar disponibilidad antes de ir.',
   },
 
   // ── Puntos de llenado SEDAPAL — Surco ────────────────────────────────────
 
   {
-    name: 'SEDAPAL · Av. El Polo cdra. 4 (Cayaltí / Pomalca)',
+    name: 'SEDAPAL Llenado · Av. El Polo cdra. 4',
     lat: -12.1108,
     lng: -76.9784,
     type: 'cistern_fill',
     district: 'Santiago de Surco',
-    notes: 'Grifa de llenado. Confirmar disponibilidad: SEDAPAL 317-8000.',
+    address: 'Av. El Polo cdra. 4 (Cayaltí / Pomalca), Surco',
+    phone: '317-8000',
+    hours: '24h — emergencias',
+    notes: 'Grifa de llenado para camiones cisterna. Confirmar disponibilidad antes de ir.',
   },
   {
-    name: 'SEDAPAL · Av. Surco cdra. 3 (Doña Esther / Montesclaros)',
+    name: 'SEDAPAL Llenado · Av. Surco cdra. 3',
     lat: -12.1390,
     lng: -77.0050,
     type: 'cistern_fill',
     district: 'Santiago de Surco',
-    notes: 'Grifa de llenado. Confirmar disponibilidad: SEDAPAL 317-8000.',
+    address: 'Av. Surco cdra. 3 (Doña Esther / Montesclaros), Surco',
+    phone: '317-8000',
+    hours: '24h — emergencias',
+    notes: 'Grifa de llenado para camiones cisterna. Confirmar disponibilidad antes de ir.',
   },
 
   // ── Puntos de llenado SEDAPAL — Chorrillos ───────────────────────────────
 
   {
-    name: 'SEDAPAL · Av. Paseo de la República cdra. 8 (Costa Azul 107)',
+    name: 'SEDAPAL Llenado · Paseo de la República cdra. 8',
     lat: -12.1620,
     lng: -77.0140,
     type: 'cistern_fill',
     district: 'Chorrillos',
-    notes: 'Grifa de llenado. Confirmar disponibilidad: SEDAPAL 317-8000.',
+    address: 'Av. Paseo de la República cdra. 8 (Costa Azul 107), Chorrillos',
+    phone: '317-8000',
+    hours: '24h — emergencias',
+    notes: 'Grifa de llenado para camiones cisterna. Confirmar disponibilidad antes de ir.',
   },
   {
-    name: 'SEDAPAL · Parque San Judas Tadeo (Av. Huaylas cdra. 11)',
+    name: 'SEDAPAL Llenado · Parque San Judas Tadeo',
     lat: -12.1820,
     lng: -77.0070,
     type: 'cistern_fill',
     district: 'Chorrillos',
-    notes: 'Mellet Vargas / Ochoa. Confirmar disponibilidad: SEDAPAL 317-8000.',
+    address: 'Av. Huaylas cdra. 11 (Mellet Vargas / Ochoa), Chorrillos',
+    phone: '317-8000',
+    hours: '24h — emergencias',
+    notes: 'Grifa de llenado para camiones cisterna. Confirmar disponibilidad antes de ir.',
   },
 
   // ── Puntos de llenado SEDAPAL — Miraflores ───────────────────────────────
 
   {
-    name: 'SEDAPAL · Miraflores (José María Eguren / Wiesse)',
+    name: 'SEDAPAL Llenado · José María Eguren / Wiesse',
     lat: -12.1195,
     lng: -77.0302,
     type: 'cistern_fill',
     district: 'Miraflores',
-    notes: 'Grifa de llenado. Confirmar disponibilidad: SEDAPAL 317-8000.',
+    address: 'José María Eguren / Wiesse, Miraflores',
+    phone: '317-8000',
+    hours: '24h — emergencias',
+    notes: 'Grifa de llenado para camiones cisterna. Confirmar disponibilidad antes de ir.',
   },
 ]
 

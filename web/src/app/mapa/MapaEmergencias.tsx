@@ -88,6 +88,19 @@ function emergencyIcon(L: typeof import('leaflet'), isActive: boolean) {
 
 // ── Popups ───────────────────────────────────────────────────────────────────
 
+function navButtons(lat: number, lng: number): string {
+  return `<div style="display:flex;gap:6px;margin-top:10px;">
+    <a href="https://maps.google.com/?q=${lat},${lng}" target="_blank" rel="noopener noreferrer"
+       style="flex:1;text-align:center;padding:6px 4px;background:#1a73e8;color:white;border-radius:7px;font-size:11px;font-weight:700;text-decoration:none;">
+      Google Maps
+    </a>
+    <a href="https://waze.com/ul?ll=${lat},${lng}&navigate=yes" target="_blank" rel="noopener noreferrer"
+       style="flex:1;text-align:center;padding:6px 4px;background:#06b6d4;color:white;border-radius:7px;font-size:11px;font-weight:700;text-decoration:none;">
+      Waze
+    </a>
+  </div>`
+}
+
 function buildFacilityPopup(f: MedicalFacility): string {
   const traumaBadge = f.trauma
     ? `<span style="background:#dc2626;color:white;font-size:10px;padding:1px 5px;border-radius:4px;font-weight:bold;">TRAUMA/UCI</span>`
@@ -99,27 +112,42 @@ function buildFacilityPopup(f: MedicalFacility): string {
     .map(i => `<span style="background:${INSURANCE_COLORS[i]}22;color:${INSURANCE_COLORS[i]};border:1px solid ${INSURANCE_COLORS[i]}55;font-size:10px;padding:1px 5px;border-radius:4px;">${i}</span>`)
     .join(' ')
   const phoneLink = f.phone
-    ? `<a href="tel:${f.phone.replace(/[^0-9+]/g, '')}" style="color:#60a5fa;font-size:12px;">📞 ${f.phone}</a>`
+    ? `<a href="tel:${f.phone.replace(/[^0-9+]/g, '')}" style="color:#60a5fa;font-size:12px;display:block;margin-top:4px;">📞 ${f.phone}</a>`
     : ''
   const notes = f.notes ? `<p style="font-size:11px;color:#a1a1aa;margin:4px 0 0;">${f.notes}</p>` : ''
 
   return `<div style="min-width:220px;font-family:sans-serif;">
     <p style="font-weight:700;font-size:14px;margin:0 0 4px;">${f.name}</p>
-    <p style="font-size:11px;color:#a1a1aa;margin:0 0 6px;">${f.address}</p>
+    <p style="font-size:11px;color:#a1a1aa;margin:0 0 6px;">📍 ${f.address}${f.district ? `, ${f.district}` : ''}</p>
     <div style="display:flex;flex-wrap:wrap;gap:3px;margin-bottom:6px;">${traumaBadge}${pedBadge}</div>
-    <div style="display:flex;flex-wrap:wrap;gap:3px;margin-bottom:6px;">${insurancePills}</div>
+    <div style="display:flex;flex-wrap:wrap;gap:3px;margin-bottom:4px;">${insurancePills}</div>
     ${phoneLink}${notes}
+    ${navButtons(f.lat, f.lng)}
   </div>`
 }
 
 function buildWaterPopup(s: WaterSource): string {
   const color = WATER_TYPE_COLORS[s.type]
   const label = WATER_TYPE_LABELS[s.type]
-  return `<div style="min-width:200px;font-family:sans-serif;">
+  const isOperational = s.type === 'cistern_fill'
+  const addressLine = s.address
+    ? `<p style="font-size:11px;color:#a1a1aa;margin:6px 0 2px;">📍 ${s.address}</p>`
+    : s.district ? `<p style="font-size:11px;color:#a1a1aa;margin:6px 0 2px;">${s.district}</p>` : ''
+  const phoneLine = s.phone
+    ? `<a href="tel:${s.phone.replace(/[^0-9+]/g, '')}" style="color:#60a5fa;font-size:12px;display:block;margin-top:4px;">📞 ${s.phone}</a>`
+    : ''
+  const hoursLine = s.hours
+    ? `<p style="font-size:11px;color:#86efac;margin:3px 0 0;">🕐 ${s.hours}</p>`
+    : ''
+  const notesLine = s.notes
+    ? `<p style="font-size:11px;color:#a1a1aa;margin:4px 0 0;">${s.notes}</p>`
+    : ''
+
+  return `<div style="min-width:210px;font-family:sans-serif;">
     <p style="font-weight:700;font-size:13px;margin:0 0 4px;">💧 ${s.name}</p>
     <span style="background:${color}22;color:${color};border:1px solid ${color}55;font-size:10px;padding:1px 6px;border-radius:4px;">${label}</span>
-    ${s.district ? `<p style="font-size:11px;color:#a1a1aa;margin:6px 0 2px;">${s.district}</p>` : ''}
-    ${s.notes ? `<p style="font-size:11px;color:#d4d4d8;margin:2px 0 0;">${s.notes}</p>` : ''}
+    ${addressLine}${phoneLine}${hoursLine}${notesLine}
+    ${isOperational ? navButtons(s.lat, s.lng) : ''}
   </div>`
 }
 
