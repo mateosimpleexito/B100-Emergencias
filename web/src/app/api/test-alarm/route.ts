@@ -10,11 +10,21 @@ export async function GET(req: NextRequest) {
 
   const supabase = createServiceClient()
 
+  // Use the latest real incident so voice announcement works when notification is tapped
+  const { data: latestIncident } = await supabase
+    .from('incidents')
+    .select('nro_parte, type, address, district, units')
+    .order('dispatched_at', { ascending: false })
+    .limit(1)
+    .single()
+
+  const nroParte = latestIncident?.nro_parte ?? 'test-' + Date.now()
+
   const payload = {
-    title: '🚨 PRUEBA — Incendio Estructura',
-    body: '🚒 B-100 AUTO BOMBA\n📍 Av. Conquistadores 1099, San Isidro',
-    url: '/',
-    tag: 'test-' + Date.now(),
+    title: '🚨 PRUEBA — Emergencia B100',
+    body: `📍 ${latestIncident?.address ?? 'Av. Conquistadores 1099, San Isidro'}`,
+    url: `/incidents/${nroParte}`,
+    tag: nroParte,
     icon: '/icons/icon-192.png',
   }
 
