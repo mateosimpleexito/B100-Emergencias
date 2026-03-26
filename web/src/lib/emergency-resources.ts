@@ -202,3 +202,53 @@ export function getResourceGroups(incidentType: string): ResourceGroup[] {
   }
   return []
 }
+
+// Build a district-aware security group (Serenazgo + PNP comisarías)
+// to prepend to the resource panel
+import { getDistrictContacts } from '@/lib/district-contacts'
+
+export function getSecurityGroup(district: string | null): ResourceGroup | null {
+  const contacts = getDistrictContacts(district)
+
+  const pnpNacional: Resource = {
+    label: 'PNP — Emergencias',
+    detail: 'Policía Nacional del Perú',
+    phone: '105',
+    url: phone('105'),
+    color: 'blue',
+  }
+
+  if (!contacts) {
+    return {
+      title: 'Seguridad',
+      icon: '🚔',
+      items: [pnpNacional],
+    }
+  }
+
+  const items: Resource[] = [
+    {
+      label: `Serenazgo ${contacts.district}`,
+      detail: contacts.serenazgo.whatsapp
+        ? `WhatsApp: ${contacts.serenazgo.whatsapp}`
+        : 'Servicio municipal 24h',
+      phone: contacts.serenazgo.phone,
+      url: phone(contacts.serenazgo.phone),
+      color: 'green',
+    },
+    ...contacts.pnp.map(c => ({
+      label: c.name,
+      detail: `Distrito ${contacts.district}`,
+      phone: c.phone,
+      url: phone(c.phone),
+      color: 'blue' as const,
+    })),
+    pnpNacional,
+  ]
+
+  return {
+    title: `Seguridad — ${contacts.district}`,
+    icon: '🚔',
+    items,
+  }
+}
