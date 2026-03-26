@@ -269,13 +269,24 @@ export default function HomePage() {
       })
     }
 
-    // Listen for FCM push received while app is in foreground (native APK)
-    const onB100Emergency = (e: Event) => {
+    // Listen for FCM push (foreground) or notification tap (background/closed)
+    // detail from FCM data has: { url, tag } where tag = nro_parte
+    const onB100Emergency = async (e: Event) => {
       const detail = (e as CustomEvent).detail
-      // detail may contain incident data from FCM payload
-      triggerAlarm(detail?.nro_parte ? detail as Incident : undefined)
+      const nroParte = detail?.tag ?? detail?.nro_parte
+      if (nroParte) {
+        // Fetch full incident so voice announcement has all data
+        const { data } = await supabase
+          .from('incidents')
+          .select('*')
+          .eq('nro_parte', nroParte)
+          .single()
+        triggerAlarm(data as Incident ?? undefined)
+      } else {
+        triggerAlarm(undefined)
+      }
     }
-    window.addEventListener('b100-emergency', onB100Emergency)
+    window.addEventListener('b100-emergency', onB100Emergency as EventListener)
 
     // Try to init AudioContext immediately (works for installed PWAs).
     // Also re-init on first touch as fallback for browser tabs.
