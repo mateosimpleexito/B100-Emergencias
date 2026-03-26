@@ -9,7 +9,6 @@ import {
   type InsuranceType,
   type MedicalFacility,
 } from '@/lib/emergency-map-data'
-import HIDRANTES_SEDAPAL from '@/lib/hidrantes-sedapal.json'
 import { WATER_SOURCES, WATER_TYPE_COLORS, WATER_TYPE_LABELS, type WaterSource } from '@/lib/water-sources'
 import { supabase } from '@/lib/supabase'
 import type { Incident } from '@/types'
@@ -47,21 +46,6 @@ function facilityIcon(L: typeof import('leaflet'), f: MedicalFacility) {
   })
 }
 
-function hydrantIcon(L: typeof import('leaflet')) {
-  return L.divIcon({
-    className: '',
-    html: `<div style="
-      background:#ef4444;
-      border:2px solid #fff;
-      border-radius:50%;
-      width:16px;height:16px;
-      box-shadow:0 1px 5px rgba(0,0,0,0.7);
-      display:flex;align-items:center;justify-content:center;
-    "><div style="width:6px;height:2px;background:#fff;border-radius:1px;"></div></div>`,
-    iconSize: [16, 16],
-    iconAnchor: [8, 8],
-  })
-}
 
 function waterIcon(L: typeof import('leaflet'), source: WaterSource) {
   const color = WATER_TYPE_COLORS[source.type]
@@ -155,9 +139,17 @@ function buildEmergencyPopup(incident: Incident): string {
   </div>`
 }
 
-const ALL_HYDRANTS = HIDRANTES_SEDAPAL.features as unknown as {
-  geometry: { coordinates: [number, number] }
-}[]
+// ── Hydrant data — loaded lazily, cached after first load ─────────────────────
+type HydrantFeature = { geometry: { coordinates: [number, number] } }
+let hydrantsCache: HydrantFeature[] | null = null
+
+async function getHydrants(): Promise<HydrantFeature[]> {
+  if (hydrantsCache) return hydrantsCache
+  const mod = await import('@/lib/hidrantes-sedapal.json')
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  hydrantsCache = (mod.default as any).features as HydrantFeature[]
+  return hydrantsCache
+}
 
 // ── Component ────────────────────────────────────────────────────────────────
 
@@ -170,6 +162,7 @@ export default function MapaEmergencias() {
   const userMarkerRef = useRef<import('leaflet').Marker | null>(null)
   const emergencyMarkerRef = useRef<import('leaflet').Marker | null>(null)
   const leafletRef = useRef<typeof import('leaflet') | null>(null)
+  const canvasRendererRef = useRef<import('leaflet').Renderer | null>(null)
 
   const [showHydrants, setShowHydrants] = useState(true)
   const [showFacilities, setShowFacilities] = useState(true)
@@ -183,25 +176,53 @@ export default function MapaEmergencias() {
   const [permPermanentDenied, setPermPermanentDenied] = useState(false)
   const [geoRequesting, setGeoRequesting] = useState(false)
 
-  // ── Load hydrants near a point ───────────────────────────────────────────
-  const loadHydrantsNear = useCallback((
+  // ── Load hydrants near a point (canvas-rendered, async) ─────────────────
+  const loadHydrantsNear = useCallback(async (
     L: typeof import('leaflet'),
     lat: number, lng: number,
     radiusKm: number
   ) => {
     if (!hydrantLayerRef.current) return
+
+    const hydrants = await getHydrants()
+    if (!hydrantLayerRef.current) return // might have unmounted while loading
+
     hydrantLayerRef.current.clearLayers()
-    const icon = hydrantIcon(L)
+
+    // Shared canvas renderer — one <canvas> for all hydrant markers
+    if (!canvasRendererRef.current) {
+      canvasRendererRef.current = L.canvas({ padding: 0.5 })
+    }
+    const renderer = canvasRendererRef.current
+
+    // Bounding box pre-filter (4 comparisons) before expensive Haversine
+    const latDelta = radiusKm / 111
+    const lonDelta = radiusKm / (111 * Math.cos(Math.abs(lat) * Math.PI / 180))
+    const minLat = lat - latDelta, maxLat = lat + latDelta
+    const minLon = lng - lonDelta, maxLon = lng + lonDelta
+
     let count = 0
-    ALL_HYDRANTS.forEach((h, idx) => {
+    hydrants.forEach((h, idx) => {
       const [hLon, hLat] = h.geometry.coordinates
-      if (distKm(lat, lng, hLat, hLon) <= radiusKm) {
-        L.marker([hLat, hLon], { icon, draggable: false })
-          .on('click', () => setSelectedHydrant({ idx, lat: hLat, lng: hLon }))
-          .addTo(hydrantLayerRef.current!)
-        count++
-      }
+      // Fast bbox check first
+      if (hLat < minLat || hLat > maxLat || hLon < minLon || hLon > maxLon) return
+      // Precise Haversine only for candidates
+      if (distKm(lat, lng, hLat, hLon) > radiusKm) return
+
+      L.circleMarker([hLat, hLon], {
+        renderer,
+        radius: 6,
+        fillColor: '#ef4444',
+        fillOpacity: 1,
+        color: '#ffffff',
+        weight: 1.5,
+        interactive: true,
+      })
+        .on('click', () => setSelectedHydrant({ idx, lat: hLat, lng: hLon }))
+        .addTo(hydrantLayerRef.current!)
+      count++
     })
+
     setHydrantCount(count)
   }, [])
 
@@ -230,13 +251,13 @@ export default function MapaEmergencias() {
           }).addTo(map)
         }
 
-        loadHydrantsNear(L, lat, lng, HYDRANT_RADIUS_KM)
+        void loadHydrantsNear(L, lat, lng, HYDRANT_RADIUS_KM)
       },
       () => {
         setGeoStatus('denied')
         setGeoRequesting(false)
         const L = leafletRef.current
-        if (L) loadHydrantsNear(L, CENTER[0], CENTER[1], FALLBACK_RADIUS_KM)
+        if (L) void loadHydrantsNear(L, CENTER[0], CENTER[1], FALLBACK_RADIUS_KM)
       },
       { timeout: 8000, maximumAge: 60000 }
     )
@@ -310,17 +331,17 @@ export default function MapaEmergencias() {
               icon: userLocationIcon(L),
               zIndexOffset: 2000,
             }).addTo(map)
-            loadHydrantsNear(L, lat, lng, HYDRANT_RADIUS_KM)
+            void loadHydrantsNear(L, lat, lng, HYDRANT_RADIUS_KM)
           },
           () => {
             setGeoStatus('denied')
-            loadHydrantsNear(L, CENTER[0], CENTER[1], FALLBACK_RADIUS_KM)
+            void loadHydrantsNear(L, CENTER[0], CENTER[1], FALLBACK_RADIUS_KM)
           },
           { timeout: 8000, maximumAge: 60000 }
         )
       } else {
         setGeoStatus('unavailable')
-        loadHydrantsNear(L, CENTER[0], CENTER[1], FALLBACK_RADIUS_KM)
+        void loadHydrantsNear(L, CENTER[0], CENTER[1], FALLBACK_RADIUS_KM)
       }
     })
 
