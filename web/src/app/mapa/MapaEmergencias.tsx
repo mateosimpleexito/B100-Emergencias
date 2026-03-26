@@ -1,5 +1,6 @@
 'use client'
 
+import 'leaflet/dist/leaflet.css'
 import { useEffect, useRef, useState, useCallback } from 'react'
 import {
   FACILITIES,
@@ -276,7 +277,7 @@ export default function MapaEmergencias() {
   useEffect(() => {
     if (!mapRef.current || mapInstanceRef.current) return
 
-    import('leaflet').then(async L => {
+    import('leaflet').then(L => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       delete (L.Icon.Default.prototype as any)._getIconUrl
       leafletRef.current = L
@@ -309,8 +310,8 @@ export default function MapaEmergencias() {
           .addTo(waterLayerRef.current!)
       })
 
-      // Latest incident with coordinates
-      const { data: latestIncident } = await supabase
+      // Latest incident — fire in background, don't block geolocation start
+      supabase
         .from('incidents')
         .select('*')
         .not('lat', 'is', null)
@@ -318,18 +319,19 @@ export default function MapaEmergencias() {
         .order('dispatched_at', { ascending: false })
         .limit(1)
         .single()
-
-      if (latestIncident?.lat && latestIncident?.lng) {
-        const inc = latestIncident as Incident
-        emergencyMarkerRef.current = L.marker([inc.lat!, inc.lng!], {
-          icon: emergencyIcon(L, inc.status === 'ATENDIENDO'),
-          zIndexOffset: 1500,
+        .then(({ data: latestIncident }) => {
+          if (latestIncident?.lat && latestIncident?.lng) {
+            const inc = latestIncident as Incident
+            emergencyMarkerRef.current = L.marker([inc.lat!, inc.lng!], {
+              icon: emergencyIcon(L, inc.status === 'ATENDIENDO'),
+              zIndexOffset: 1500,
+            })
+              .bindPopup(buildEmergencyPopup(inc), { maxWidth: 260 })
+              .addTo(mapInstanceRef.current ?? map)
+          }
         })
-          .bindPopup(buildEmergencyPopup(inc), { maxWidth: 260 })
-          .addTo(map)
-      }
 
-      // Geolocation — fast attempt first (no GPS chip, accepts 5min cache)
+      // Geolocation — starts immediately, in parallel with Supabase above
       if (navigator.geolocation) {
         const onSuccess = (pos: GeolocationPosition) => {
           const { latitude: lat, longitude: lng } = pos.coords
@@ -458,8 +460,6 @@ export default function MapaEmergencias() {
           opacity: 0.75;
         }
       `}</style>
-
-      <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 
       <div className="flex flex-col h-full">
         {/* Controls */}
