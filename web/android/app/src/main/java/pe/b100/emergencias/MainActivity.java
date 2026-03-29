@@ -39,8 +39,9 @@ public class MainActivity extends BridgeActivity {
         NotificationManager nm = getSystemService(NotificationManager.class);
         if (nm == null) return;
 
-        // Only create once — Android ignores duplicate channel creation
-        if (nm.getNotificationChannel(CHANNEL_ID) != null) return;
+        // Delete old channel so new audio attributes (USAGE_ALARM) take effect
+        // Android caches channel settings — only way to update sound/usage is recreate
+        nm.deleteNotificationChannel(CHANNEL_ID);
 
         NotificationChannel channel = new NotificationChannel(
             CHANNEL_ID,
@@ -51,6 +52,7 @@ public class MainActivity extends BridgeActivity {
         channel.enableVibration(true);
         channel.setVibrationPattern(new long[]{0, 400, 100, 400, 100, 400, 100, 800});
         channel.setShowBadge(true);
+        channel.setBypassDnd(true);  // Suena incluso en No Molestar
 
         // Attach the siren sound from res/raw/siren.mp3
         Uri soundUri = Uri.parse(
@@ -58,7 +60,7 @@ public class MainActivity extends BridgeActivity {
         );
         AudioAttributes audioAttributes = new AudioAttributes.Builder()
             .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-            .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
+            .setUsage(AudioAttributes.USAGE_ALARM)
             .build();
         channel.setSound(soundUri, audioAttributes);
 
