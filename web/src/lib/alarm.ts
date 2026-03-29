@@ -17,6 +17,30 @@ import { unitName, alertPhrase, B100_UNITS } from '@/types'
 const ALARM_GAIN = 5.0
 const VOICE_GAIN = 4.0
 
+// Native volume boost for Android (Capacitor plugin)
+// Temporarily maxes media volume so Web Audio API is loud even if user has media at 0
+async function boostVolume() {
+  try {
+    const { Capacitor } = await import('@capacitor/core')
+    if (Capacitor.isNativePlatform()) {
+      const { registerPlugin } = await import('@capacitor/core')
+      const VolumeBoost = registerPlugin<{ boost: () => Promise<void>; restore: () => Promise<void> }>('VolumeBoost')
+      await VolumeBoost.boost()
+    }
+  } catch { /* not on native — ignore */ }
+}
+
+async function restoreVolume() {
+  try {
+    const { Capacitor } = await import('@capacitor/core')
+    if (Capacitor.isNativePlatform()) {
+      const { registerPlugin } = await import('@capacitor/core')
+      const VolumeBoost = registerPlugin<{ boost: () => Promise<void>; restore: () => Promise<void> }>('VolumeBoost')
+      await VolumeBoost.restore()
+    }
+  } catch { /* not on native — ignore */ }
+}
+
 let audioContext: AudioContext | null = null
 let masterCompressor: DynamicsCompressorNode | null = null
 let alarmGain: GainNode | null = null
@@ -223,6 +247,9 @@ export function playAlarm(incident?: Incident) {
 
   isPlaying = true
 
+  // Boost media volume to max on Android so Web Audio is loud
+  boostVolume()
+
   ctx.resume().then(() => {
     if (!isPlaying) return
     startKeepAlive(ctx)
@@ -321,4 +348,7 @@ export function stopAlarm() {
   if ('vibrate' in navigator) {
     navigator.vibrate(0)
   }
+
+  // Restore original media volume on Android
+  restoreVolume()
 }

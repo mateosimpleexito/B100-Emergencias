@@ -19,6 +19,9 @@ public class MainActivity extends BridgeActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
+        // ─── 0. Register VolumeBoost plugin ──────────────────────────────
+        getBridge().registerPlugin(VolumeBoostPlugin.class);
+
         // ─── 1. Remove user-gesture requirement for Web Audio ──────────────
         try {
             android.webkit.WebView webView = getBridge().getWebView();
