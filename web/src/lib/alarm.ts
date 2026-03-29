@@ -3,28 +3,30 @@
 import type { Incident } from '@/types'
 import { unitName, alertPhrase, B100_UNITS } from '@/types'
 
-// Emergency alarm — SELECTIVA real de la B100 + voice announcement
-// Designed to wake up firefighters. MAX VOLUME. Estilo INDECI.
+// Emergency alarm — Selectiva real de la B100
 //
-// Flow: selectiva loop × 3 → voz → selectiva loop × 3 → voz → ×3 → burst final
+// Flow exacto de una salida:
+//   1. Suena PreventivaySelectiva (2.73s) — UNA sola vez
+//   2. Pausa 3s
+//   3. Suena selectiva_repeat (1.13s) — hasta 5 veces, cada 3s
+//   4. Si el usuario abre la notificación/app → para todo
 //
-// Voice announcements use server-side TTS (/api/tts) played through
-// AudioContext. Works in installed PWAs without user gesture.
+// Voice TTS se reproduce DESPUÉS de la secuencia de selectivas.
 
 let audioContext: AudioContext | null = null
 let alarmGain: GainNode | null = null
-let alarmTimeout: ReturnType<typeof setTimeout> | null = null
-let speechTimeout: ReturnType<typeof setTimeout> | null = null
+let repeatTimer: ReturnType<typeof setTimeout> | null = null
+let voiceTimer: ReturnType<typeof setTimeout> | null = null
 let isPlaying = false
+let currentSource: AudioBufferSourceNode | null = null
 let currentSpeechSource: AudioBufferSourceNode | null = null
-let currentSelectivaSource: AudioBufferSourceNode | null = null
 let keepAliveNode: OscillatorNode | null = null
 
-// Pre-loaded selectiva audio buffer
-let selectivaBuffer: AudioBuffer | null = null
-let selectivaLoading = false
+// Pre-loaded audio buffers
+let prevSelectivaBuffer: AudioBuffer | null = null
+let repeatBuffer: AudioBuffer | null = null
+let buffersLoading = false
 
-// Cache decoded TTS audio buffers
 const ttsCache = new Map<string, AudioBuffer>()
 
 function getContext(): AudioContext | null {
@@ -38,23 +40,25 @@ function getContext(): AudioContext | null {
   return audioContext
 }
 
-// Pre-load the selectiva audio so it's ready instantly when alarm fires
-async function loadSelectiva(ctx: AudioContext): Promise<AudioBuffer | null> {
-  if (selectivaBuffer) return selectivaBuffer
-  if (selectivaLoading) return null
-  selectivaLoading = true
+async function loadBuffers(ctx: AudioContext) {
+  if ((prevSelectivaBuffer && repeatBuffer) || buffersLoading) return
+  buffersLoading = true
 
   try {
-    const res = await fetch('/sounds/selectiva.mp3')
-    if (!res.ok) throw new Error(`HTTP ${res.status}`)
-    const arrayBuffer = await res.arrayBuffer()
-    selectivaBuffer = await ctx.decodeAudioData(arrayBuffer)
-    return selectivaBuffer
+    const [prevRes, repRes] = await Promise.all([
+      fetch('/sounds/preventiva-y-selectiva.mp3'),
+      fetch('/sounds/selectiva-repeat.mp3'),
+    ])
+    if (prevRes.ok) {
+      prevSelectivaBuffer = await ctx.decodeAudioData(await prevRes.arrayBuffer())
+    }
+    if (repRes.ok) {
+      repeatBuffer = await ctx.decodeAudioData(await repRes.arrayBuffer())
+    }
   } catch (err) {
-    console.warn('Failed to load selectiva audio:', err)
-    selectivaLoading = false
-    return null
+    console.warn('Failed to load alarm audio:', err)
   }
+  buffersLoading = false
 }
 
 export function initAlarm() {
@@ -63,88 +67,7 @@ export function initAlarm() {
   if (ctx.state !== 'running') {
     ctx.resume().catch(() => {})
   }
-  // Pre-load selectiva immediately
-  loadSelectiva(ctx).catch(() => {})
-}
-
-// Play selectiva looped N times through AudioContext at MAX volume
-function playSelectiva(ctx: AudioContext, loops: number, onEnd?: () => void) {
-  if (!selectivaBuffer) {
-    // Fallback: if selectiva didn't load, use a harsh oscillator burst
-    playFallbackSiren(ctx, loops * 2.7, onEnd)
-    return
-  }
-
-  const master = ctx.createGain()
-  master.gain.setValueAtTime(1.0, ctx.currentTime)
-  master.connect(ctx.destination)
-  alarmGain = master
-
-  let loopsPlayed = 0
-
-  function playOneLoop() {
-    if (!isPlaying || loopsPlayed >= loops) {
-      onEnd?.()
-      return
-    }
-
-    const source = ctx.createBufferSource()
-    source.buffer = selectivaBuffer!
-    source.connect(master)
-    currentSelectivaSource = source
-
-    source.onended = () => {
-      currentSelectivaSource = null
-      loopsPlayed++
-      if (isPlaying && loopsPlayed < loops) {
-        playOneLoop()
-      } else {
-        onEnd?.()
-      }
-    }
-
-    source.start()
-  }
-
-  playOneLoop()
-}
-
-// Fallback siren if selectiva.mp3 fails to load
-function playFallbackSiren(ctx: AudioContext, duration: number, onEnd?: () => void) {
-  const now = ctx.currentTime
-  const master = ctx.createGain()
-  master.gain.setValueAtTime(1.0, now)
-  master.connect(ctx.destination)
-  alarmGain = master
-
-  const siren = ctx.createOscillator()
-  siren.type = 'sawtooth'
-  const sg = ctx.createGain()
-  sg.gain.setValueAtTime(0.6, now)
-  siren.connect(sg)
-  sg.connect(master)
-
-  const cycleTime = 0.8
-  for (let t = 0; t < duration; t += cycleTime * 2) {
-    siren.frequency.linearRampToValueAtTime(350, now + t)
-    siren.frequency.linearRampToValueAtTime(750, now + t + cycleTime)
-    siren.frequency.linearRampToValueAtTime(350, now + t + cycleTime * 2)
-  }
-
-  siren.start(now)
-  siren.stop(now + duration)
-  siren.onended = () => onEnd?.()
-}
-
-function stopSelectiva() {
-  if (currentSelectivaSource) {
-    try { currentSelectivaSource.stop() } catch { /* ok */ }
-    currentSelectivaSource = null
-  }
-  if (alarmGain) {
-    try { alarmGain.gain.setValueAtTime(0, alarmGain.context.currentTime) } catch { /* ok */ }
-    alarmGain = null
-  }
+  loadBuffers(ctx).catch(() => {})
 }
 
 function startKeepAlive(ctx: AudioContext) {
@@ -164,6 +87,39 @@ function stopKeepAlive() {
     keepAliveNode = null
   }
 }
+
+function playBuffer(ctx: AudioContext, buffer: AudioBuffer, onEnd?: () => void) {
+  const source = ctx.createBufferSource()
+  source.buffer = buffer
+
+  const gain = ctx.createGain()
+  gain.gain.setValueAtTime(1.0, ctx.currentTime)
+  source.connect(gain)
+  gain.connect(ctx.destination)
+  alarmGain = gain
+
+  currentSource = source
+
+  source.onended = () => {
+    currentSource = null
+    onEnd?.()
+  }
+
+  source.start()
+}
+
+function stopCurrentSource() {
+  if (currentSource) {
+    try { currentSource.stop() } catch { /* ok */ }
+    currentSource = null
+  }
+  if (alarmGain) {
+    try { alarmGain.gain.setValueAtTime(0, alarmGain.context.currentTime) } catch { /* ok */ }
+    alarmGain = null
+  }
+}
+
+// ─── TTS ──────────────────────────────────────────────────────────────────────
 
 function buildAnnouncement(incident: Incident): string {
   const alert = alertPhrase(incident.type)
@@ -186,12 +142,10 @@ async function fetchTTSAudio(ctx: AudioContext, text: string): Promise<AudioBuff
   const cached = ttsCache.get(text)
   if (cached) return cached
 
-  const url = `/api/tts?text=${encodeURIComponent(text)}`
-  const res = await fetch(url)
+  const res = await fetch(`/api/tts?text=${encodeURIComponent(text)}`)
   if (!res.ok) throw new Error(`TTS fetch failed: ${res.status}`)
 
-  const arrayBuffer = await res.arrayBuffer()
-  const audioBuffer = await ctx.decodeAudioData(arrayBuffer)
+  const audioBuffer = await ctx.decodeAudioData(await res.arrayBuffer())
 
   if (ttsCache.size >= 5) {
     const firstKey = ttsCache.keys().next().value!
@@ -201,7 +155,7 @@ async function fetchTTSAudio(ctx: AudioContext, text: string): Promise<AudioBuff
   return audioBuffer
 }
 
-function playAudioBuffer(ctx: AudioContext, buffer: AudioBuffer, onEnd?: () => void) {
+function playTTS(ctx: AudioContext, buffer: AudioBuffer, onEnd?: () => void) {
   const source = ctx.createBufferSource()
   source.buffer = buffer
 
@@ -232,43 +186,14 @@ async function speak(ctx: AudioContext, text: string, onEnd?: () => void) {
     const audioBuffer = await fetchTTSAudio(ctx, text)
     if (!isPlaying) { onEnd?.(); return }
     await ctx.resume()
-    playAudioBuffer(ctx, audioBuffer, onEnd)
+    playTTS(ctx, audioBuffer, onEnd)
   } catch (err) {
-    console.warn('Server TTS failed, trying speechSynthesis fallback:', err)
-    speakFallback(text, onEnd)
-  }
-}
-
-function speakFallback(text: string, onEnd?: () => void) {
-  if (!('speechSynthesis' in window)) {
+    console.warn('TTS failed:', err)
     onEnd?.()
-    return
   }
-
-  window.speechSynthesis.cancel()
-
-  setTimeout(() => {
-    const utterance = new SpeechSynthesisUtterance(text)
-    utterance.lang = 'es'
-    utterance.rate = 0.85
-    utterance.pitch = 0.7
-    utterance.volume = 1.0
-
-    const voices = window.speechSynthesis.getVoices()
-    const esVoice = voices.find(v => v.lang.startsWith('es'))
-    if (esVoice) utterance.voice = esVoice
-
-    const safetyTimer = setTimeout(() => {
-      window.speechSynthesis.cancel()
-      onEnd?.()
-    }, 20000)
-
-    utterance.onend = () => { clearTimeout(safetyTimer); onEnd?.() }
-    utterance.onerror = () => { clearTimeout(safetyTimer); onEnd?.() }
-
-    window.speechSynthesis.speak(utterance)
-  }, 200)
 }
+
+// ─── Main alarm logic ─────────────────────────────────────────────────────────
 
 export function playAlarm(incident?: Incident) {
   if (isPlaying) stopAlarm()
@@ -289,73 +214,85 @@ export function playAlarm(incident?: Incident) {
 }
 
 function _startAlarm(ctx: AudioContext, incident?: Incident) {
-  // Heavy vibration — 60 cycles like INDECI
+  // Heavy vibration
   if ('vibrate' in navigator) {
     const pattern: number[] = []
     for (let i = 0; i < 60; i++) pattern.push(400, 100)
     navigator.vibrate(pattern)
   }
 
-  if (!incident) {
-    // No incident data — play selectiva in loop for ~30s
-    playSelectiva(ctx, 11, () => stopAlarm())
-    alarmTimeout = setTimeout(() => stopAlarm(), 33000)
+  // Pre-fetch TTS if we have incident data
+  const announcement = incident ? buildAnnouncement(incident) : null
+  if (announcement) {
+    fetchTTSAudio(ctx, announcement).catch(() => {})
+  }
+
+  // STEP 1: Play PreventivaySelectiva (2.73s)
+  if (prevSelectivaBuffer) {
+    playBuffer(ctx, prevSelectivaBuffer, () => {
+      if (!isPlaying) return
+      // STEP 2: After 3s pause, start repeat loop
+      repeatTimer = setTimeout(() => startRepeatLoop(ctx, 0, announcement), 3000)
+    })
+  } else {
+    // Buffers didn't load — try loading now then fallback
+    loadBuffers(ctx).then(() => {
+      if (!isPlaying) return
+      if (prevSelectivaBuffer) {
+        playBuffer(ctx, prevSelectivaBuffer, () => {
+          if (!isPlaying) return
+          repeatTimer = setTimeout(() => startRepeatLoop(ctx, 0, announcement), 3000)
+        })
+      } else {
+        // Total fallback — just play repeats
+        startRepeatLoop(ctx, 0, announcement)
+      }
+    })
+  }
+}
+
+function startRepeatLoop(ctx: AudioContext, count: number, announcement: string | null) {
+  if (!isPlaying || count >= 5) {
+    // Done with selectivas — play voice announcement if available
+    if (isPlaying && announcement) {
+      voiceTimer = setTimeout(() => {
+        if (!isPlaying) return
+        speak(ctx, announcement, () => stopAlarm())
+      }, 500)
+    } else {
+      stopAlarm()
+    }
     return
   }
 
-  const announcement = buildAnnouncement(incident)
-  let repeatCount = 0
-
-  // Pre-fetch TTS audio immediately
-  fetchTTSAudio(ctx, announcement).catch(() => {})
-
-  function cycle() {
-    if (!isPlaying || repeatCount >= 3) {
-      // Final burst — 5 loops of selectiva then stop
-      if (isPlaying) {
-        playSelectiva(ctx!, 5, () => stopAlarm())
-        alarmTimeout = setTimeout(() => stopAlarm(), 15000)
-      }
-      return
-    }
-
-    // Play selectiva × 3 (~8s)
-    playSelectiva(ctx!, 3, () => {
+  if (repeatBuffer) {
+    playBuffer(ctx, repeatBuffer, () => {
       if (!isPlaying) return
-
-      // Stop selectiva, then speak
-      stopSelectiva()
-
-      speechTimeout = setTimeout(() => {
-        if (!isPlaying) return
-
-        speak(ctx!, announcement, () => {
-          repeatCount++
-          if (isPlaying && repeatCount < 3) {
-            speechTimeout = setTimeout(cycle, 200)
-          } else {
-            cycle() // triggers final burst
-          }
-        })
-      }, 150)
+      // Wait 3s then play next repeat
+      repeatTimer = setTimeout(() => startRepeatLoop(ctx, count + 1, announcement), 3000)
     })
+  } else {
+    // No repeat buffer — skip to voice
+    if (announcement) {
+      speak(ctx, announcement, () => stopAlarm())
+    } else {
+      stopAlarm()
+    }
   }
-
-  cycle()
 }
 
 export function stopAlarm() {
   isPlaying = false
   stopKeepAlive()
-  stopSelectiva()
+  stopCurrentSource()
 
   if (currentSpeechSource) {
     try { currentSpeechSource.stop() } catch { /* ok */ }
     currentSpeechSource = null
   }
 
-  if (alarmTimeout) { clearTimeout(alarmTimeout); alarmTimeout = null }
-  if (speechTimeout) { clearTimeout(speechTimeout); speechTimeout = null }
+  if (repeatTimer) { clearTimeout(repeatTimer); repeatTimer = null }
+  if (voiceTimer) { clearTimeout(voiceTimer); voiceTimer = null }
 
   if ('speechSynthesis' in window) {
     window.speechSynthesis.cancel()
