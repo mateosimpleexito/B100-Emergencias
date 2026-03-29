@@ -21,17 +21,22 @@ export async function sendFCMToToken(
     const app = getFirebaseApp()
     if (!app) return { sent: false, expired: false }
 
+    // DATA-ONLY message — no `notification` field.
+    // This ensures onMessageReceived() is ALWAYS called, even when
+    // app is closed/killed. If we include `notification`, Firebase
+    // handles it directly (shows system notification, uses notification
+    // volume) and our AlarmService never starts.
     await getMessaging(app).send({
       token,
-      notification: { title: payload.title, body: payload.body },
       android: {
         priority: 'high',
-        notification: {
-          channelId: 'b100_emergency',   // matches MainActivity channel
-          sound: 'siren',                // res/raw/siren.mp3 (fallback when app closed)
-        },
       },
-      data: { url: payload.url, tag: payload.tag },
+      data: {
+        title: payload.title,
+        body: payload.body,
+        url: payload.url,
+        tag: payload.tag,
+      },
     })
     return { sent: true, expired: false }
   } catch (err: unknown) {

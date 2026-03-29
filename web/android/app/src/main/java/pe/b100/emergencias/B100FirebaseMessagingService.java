@@ -6,9 +6,15 @@ import android.util.Log;
 import com.google.firebase.messaging.FirebaseMessagingService;
 import com.google.firebase.messaging.RemoteMessage;
 
+import java.util.Map;
+
 /**
- * Intercepts FCM push notifications and starts AlarmService to play
- * the full selectiva sequence — even when app is completely closed.
+ * Intercepts FCM data-only messages and starts AlarmService.
+ *
+ * CRITICAL: FCM must be sent as data-only (no `notification` field).
+ * If `notification` is present, Android handles it directly when app
+ * is in background — our onMessageReceived() is never called and
+ * AlarmService never starts.
  */
 public class B100FirebaseMessagingService extends FirebaseMessagingService {
 
@@ -16,29 +22,15 @@ public class B100FirebaseMessagingService extends FirebaseMessagingService {
 
     @Override
     public void onMessageReceived(RemoteMessage remoteMessage) {
-        Log.d(TAG, "Push received from: " + remoteMessage.getFrom());
+        Log.d(TAG, "Push received — starting AlarmService");
 
-        String title = "";
-        String body = "";
-        String url = "/";
+        Map<String, String> data = remoteMessage.getData();
 
-        // Extract from notification payload
-        if (remoteMessage.getNotification() != null) {
-            title = remoteMessage.getNotification().getTitle() != null
-                ? remoteMessage.getNotification().getTitle() : "";
-            body = remoteMessage.getNotification().getBody() != null
-                ? remoteMessage.getNotification().getBody() : "";
-        }
+        String title = data.containsKey("title") ? data.get("title") : "🚨 EMERGENCIA B100";
+        String body = data.containsKey("body") ? data.get("body") : "Nueva emergencia detectada";
+        String url = data.containsKey("url") ? data.get("url") : "/";
 
-        // Extract from data payload
-        if (remoteMessage.getData().containsKey("url")) {
-            url = remoteMessage.getData().get("url");
-        }
-        if (remoteMessage.getData().containsKey("tag")) {
-            // tag is the nro_parte
-        }
-
-        // Start AlarmService as foreground service
+        // Start AlarmService — plays selectiva through STREAM_ALARM
         Intent alarmIntent = new Intent(this, AlarmService.class);
         alarmIntent.putExtra("title", title);
         alarmIntent.putExtra("body", body);
@@ -53,7 +45,7 @@ public class B100FirebaseMessagingService extends FirebaseMessagingService {
 
     @Override
     public void onNewToken(String token) {
-        Log.d(TAG, "New FCM token: " + token);
+        Log.d(TAG, "New FCM token");
         // Capacitor push-notifications plugin handles token registration
     }
 }
