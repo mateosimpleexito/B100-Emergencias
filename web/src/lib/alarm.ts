@@ -13,7 +13,12 @@ import { unitName, alertPhrase, B100_UNITS } from '@/types'
 //
 // Voice TTS se reproduce DESPUÉS de la secuencia de selectivas.
 
+// Volume boost — cranked to max. Compressor prevents clipping.
+const ALARM_GAIN = 5.0
+const VOICE_GAIN = 4.0
+
 let audioContext: AudioContext | null = null
+let masterCompressor: DynamicsCompressorNode | null = null
 let alarmGain: GainNode | null = null
 let repeatTimer: ReturnType<typeof setTimeout> | null = null
 let voiceTimer: ReturnType<typeof setTimeout> | null = null
@@ -33,11 +38,26 @@ function getContext(): AudioContext | null {
   if (!audioContext || audioContext.state === 'closed') {
     try {
       audioContext = new AudioContext()
+      masterCompressor = null
     } catch {
       return null
     }
   }
   return audioContext
+}
+
+// Master compressor: prevents clipping when gain > 1.0 while keeping max loudness
+function getMasterOutput(ctx: AudioContext): AudioNode {
+  if (!masterCompressor) {
+    masterCompressor = ctx.createDynamicsCompressor()
+    masterCompressor.threshold.setValueAtTime(-3, ctx.currentTime)
+    masterCompressor.knee.setValueAtTime(0, ctx.currentTime)
+    masterCompressor.ratio.setValueAtTime(20, ctx.currentTime)
+    masterCompressor.attack.setValueAtTime(0.001, ctx.currentTime)
+    masterCompressor.release.setValueAtTime(0.05, ctx.currentTime)
+    masterCompressor.connect(ctx.destination)
+  }
+  return masterCompressor
 }
 
 async function loadBuffers(ctx: AudioContext) {
@@ -76,7 +96,7 @@ function startKeepAlive(ctx: AudioContext) {
   const gain = ctx.createGain()
   gain.gain.setValueAtTime(0.0001, ctx.currentTime)
   osc.connect(gain)
-  gain.connect(ctx.destination)
+  gain.connect(getMasterOutput(ctx))
   osc.start()
   keepAliveNode = osc
 }
@@ -93,9 +113,9 @@ function playBuffer(ctx: AudioContext, buffer: AudioBuffer, onEnd?: () => void) 
   source.buffer = buffer
 
   const gain = ctx.createGain()
-  gain.gain.setValueAtTime(1.0, ctx.currentTime)
+  gain.gain.setValueAtTime(ALARM_GAIN, ctx.currentTime)
   source.connect(gain)
-  gain.connect(ctx.destination)
+  gain.connect(getMasterOutput(ctx))
   alarmGain = gain
 
   currentSource = source
@@ -160,9 +180,9 @@ function playTTS(ctx: AudioContext, buffer: AudioBuffer, onEnd?: () => void) {
   source.buffer = buffer
 
   const gain = ctx.createGain()
-  gain.gain.setValueAtTime(1.0, ctx.currentTime)
+  gain.gain.setValueAtTime(VOICE_GAIN, ctx.currentTime)
   source.connect(gain)
-  gain.connect(ctx.destination)
+  gain.connect(getMasterOutput(ctx))
 
   currentSpeechSource = source
 
