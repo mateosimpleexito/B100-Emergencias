@@ -34,6 +34,24 @@ public class MainActivity extends BridgeActivity {
         try {
             createEmergencyNotificationChannel();
         } catch (Exception ignored) {}
+
+        // ─── 3. Stop AlarmService when app opens (app alarm code takes over) ─
+        stopAlarmService();
+    }
+
+    @Override
+    protected void onNewIntent(android.content.Intent intent) {
+        super.onNewIntent(intent);
+        // Also stop when returning to app from notification tap
+        stopAlarmService();
+    }
+
+    private void stopAlarmService() {
+        try {
+            android.content.Intent stopIntent = new android.content.Intent(this, AlarmService.class);
+            stopIntent.setAction("STOP");
+            startService(stopIntent);
+        } catch (Exception ignored) {}
     }
 
     private void createEmergencyNotificationChannel() {
