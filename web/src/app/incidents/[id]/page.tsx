@@ -4,66 +4,9 @@ import Link from 'next/link'
 import { B100_UNITS } from '@/types'
 import IncidentMap from './IncidentMap'
 import CloseIncidentButton from './CloseIncidentButton'
-import { getResourceGroups } from '@/lib/emergency-resources'
-import type { ResourceGroup } from '@/lib/emergency-resources'
 
 interface Props {
   params: Promise<{ id: string }>
-}
-
-const COLOR_CLASSES: Record<string, string> = {
-  red: 'border-red-800 bg-red-950/40',
-  orange: 'border-orange-800 bg-orange-950/40',
-  yellow: 'border-yellow-800 bg-yellow-950/40',
-  blue: 'border-blue-800 bg-blue-950/40',
-  green: 'border-green-800 bg-green-950/40',
-  zinc: 'border-zinc-700 bg-zinc-900/60',
-}
-
-const LABEL_COLOR: Record<string, string> = {
-  red: 'text-red-400',
-  orange: 'text-orange-400',
-  yellow: 'text-yellow-400',
-  blue: 'text-blue-400',
-  green: 'text-green-400',
-  zinc: 'text-zinc-400',
-}
-
-function ResourcePanel({ groups }: { groups: ResourceGroup[] }) {
-  if (groups.length === 0) return null
-  return (
-    <div>
-      <p className="text-xs text-zinc-500 uppercase tracking-wider mb-3">Recursos de emergencia</p>
-      <div className="space-y-4">
-        {groups.map(group => (
-          <div key={group.title}>
-            <p className="text-xs font-semibold text-zinc-400 mb-2">
-              {group.icon} {group.title}
-            </p>
-            <div className="space-y-2">
-              {group.items.map(item => (
-                <a
-                  key={item.label}
-                  href={item.url}
-                  className={`flex items-center justify-between rounded-xl border px-4 py-3 active:opacity-70 transition-opacity ${COLOR_CLASSES[item.color]}`}
-                >
-                  <div className="min-w-0">
-                    <p className={`text-sm font-semibold ${LABEL_COLOR[item.color]}`}>{item.label}</p>
-                    <p className="text-xs text-zinc-500 truncate">{item.detail}</p>
-                  </div>
-                  {item.phone && (
-                    <span className="text-sm font-mono text-zinc-300 ml-3 shrink-0">
-                      📞 {item.phone}
-                    </span>
-                  )}
-                </a>
-              ))}
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  )
 }
 
 export default async function IncidentPage({ params }: Props) {
@@ -81,8 +24,6 @@ export default async function IncidentPage({ params }: Props) {
   const isActive = incident.status === 'ATENDIENDO'
   const typeShort = incident.type.split('/')[0].trim()
   const typeDetail = incident.type.split('/').slice(1).map((s: string) => s.trim()).filter(Boolean)
-  const resourceGroups = getResourceGroups(incident.type, incident.district)
-
   const dispatchedAt = new Date(incident.dispatched_at).toLocaleString('es-PE', {
     timeZone: 'America/Lima',
     day: '2-digit',
@@ -193,9 +134,6 @@ export default async function IncidentPage({ params }: Props) {
             <p className="text-sm text-zinc-300">{incident.close_note}</p>
           </div>
         )}
-
-        {/* Emergency resources */}
-        <ResourcePanel groups={resourceGroups} />
 
       </div>
     </main>
