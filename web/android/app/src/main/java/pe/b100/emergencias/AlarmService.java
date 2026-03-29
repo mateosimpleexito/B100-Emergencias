@@ -89,12 +89,6 @@ public class AlarmService extends Service {
         savedAlarmVolume = audioManager.getStreamVolume(AudioManager.STREAM_ALARM);
         int max = audioManager.getStreamMaxVolume(AudioManager.STREAM_ALARM);
         audioManager.setStreamVolume(AudioManager.STREAM_ALARM, max, 0);
-
-        // Also boost media in case Web Audio API kicks in when app opens
-        try {
-            int mediaMax = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC);
-            audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, mediaMax, 0);
-        } catch (Exception ignored) {}
     }
 
     private void restoreVolume() {
