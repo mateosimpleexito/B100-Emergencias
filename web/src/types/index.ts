@@ -33,10 +33,18 @@ export interface Profile {
   is_active: boolean
 }
 
-// B100 unit codes monitored for dispatch alerts
+// B100 unit codes — known exact codes for display
 export const B100_UNITS = ['M100-1', 'RES-100', 'AMB-100', 'AUX-100', 'AUX100-2'] as const
 
 export type B100Unit = typeof B100_UNITS[number]
+
+// Pattern-based detection: catches any unit from compañía 100
+// Matches: M100-1, M-100, RES-100, RES100, AMB-100, AMB100-1, AUX100-2, MED-100, RESLIG-100, etc.
+const B100_PATTERN = /^(M|MAQ|RES|RESC|RESLIG|AMB|AUX|MED|BOMB)[-]?100/i
+
+export function isB100Unit(code: string): boolean {
+  return B100_PATTERN.test(code) || (B100_UNITS as readonly string[]).includes(code)
+}
 
 // Readable unit names for alerts and UI
 export const UNIT_NAMES: Record<string, string> = {

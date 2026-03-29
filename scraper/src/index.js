@@ -62,7 +62,11 @@ async function callScrapeAPI() {
       'x-scraper-secret': SCRAPER_SECRET,
     },
   })
-  return res.json()
+  const data = await res.json()
+  if (!res.ok) {
+    throw new Error(`API ${res.status}: ${data.error || JSON.stringify(data)}`)
+  }
+  return data
 }
 
 async function poll() {
@@ -102,9 +106,16 @@ async function poll() {
     }
 
     // New nro_parte detected or first run — call the API
-    const result = await callScrapeAPI()
+    let result
+    try {
+      result = await callScrapeAPI()
+    } catch (apiErr) {
+      // API failed — do NOT cache nro_partes so we RETRY on next poll
+      console.error(`[B100] ❌ API falló — SE REINTENTARÁ en ${POLL_INTERVAL_MS}ms:`, apiErr.message)
+      return
+    }
 
-    // Update seen cache
+    // Only cache after successful API response — this is critical
     nroPartes.forEach(nro => seenNroParts.add(nro))
 
     // Keep cache from growing unbounded — remove old entries if > 500
