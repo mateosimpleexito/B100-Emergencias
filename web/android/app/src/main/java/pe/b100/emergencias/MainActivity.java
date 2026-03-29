@@ -52,10 +52,9 @@ public class MainActivity extends BridgeActivity {
             NotificationManager.IMPORTANCE_HIGH  // Heads-up notification + sound
         );
         channel.setDescription("Alertas de despacho Compañía 100");
-        channel.enableVibration(true);
-        channel.setVibrationPattern(new long[]{0, 400, 100, 400, 100, 400, 100, 800});
+        channel.enableVibration(false);   // Vibración la maneja el código de alarma (INDECI-style)
         channel.setShowBadge(true);
-        channel.setBypassDnd(true);  // Suena incluso en No Molestar
+        channel.setBypassDnd(true);       // Suena incluso en No Molestar
 
         // Attach the siren sound from res/raw/siren.mp3
         Uri soundUri = Uri.parse(

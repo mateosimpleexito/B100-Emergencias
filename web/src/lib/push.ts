@@ -28,8 +28,7 @@ export async function sendFCMToToken(
         priority: 'high',
         notification: {
           channelId: 'b100_emergency',   // matches MainActivity channel
-          sound: 'siren',                // res/raw/siren.mp3
-          vibrateTimingsMillis: [0, 400, 100, 400, 100, 400, 100, 800],
+          sound: 'siren',                // res/raw/siren.mp3 (fallback when app closed)
         },
       },
       data: { url: payload.url, tag: payload.tag },

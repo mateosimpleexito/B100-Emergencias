@@ -48,28 +48,34 @@ self.addEventListener('push', event => {
   const { title, body, url, tag, icon } = payload
 
   event.waitUntil(
-    // Alert any open app window to play loud alarm sound
+    // Check if app is open — if so, alarm code handles sound
     self.clients.matchAll({ type: 'window', includeUncontrolled: true })
       .then(clients => {
+        const appIsOpen = clients.length > 0
+
+        // Tell open windows to play the selectiva alarm
         clients.forEach(client => {
           client.postMessage({ type: 'EMERGENCY_ALARM', payload })
         })
+
+        // If app is open: silent notification (selectiva handles audio + vibration)
+        // If app is closed: notification with sound to wake user up
+        return self.registration.showNotification(title, {
+          body,
+          icon: icon || '/icons/icon-192.png',
+          badge: '/icons/badge-72.png',
+          tag,
+          data: { url },
+          requireInteraction: true,
+          renotify: true,
+          silent: appIsOpen,               // silent only when app handles it
+          vibrate: appIsOpen ? undefined : [400, 100, 400, 100, 400, 100, 800],
+          actions: [
+            { action: 'open', title: 'Ver emergencia' },
+            { action: 'dismiss', title: 'Cerrar' },
+          ],
+        })
       })
-      .then(() => self.registration.showNotification(title, {
-      body,
-      icon: icon || '/icons/icon-192.png',
-      badge: '/icons/badge-72.png',
-      tag,
-      data: { url },
-      requireInteraction: true,    // stays visible until dismissed
-      renotify: true,              // re-alert even if same tag exists
-      silent: false,               // force sound on
-      vibrate: [300, 100, 300, 100, 300, 100, 600],  // SOS-like pattern
-      actions: [
-        { action: 'open', title: 'Ver emergencia' },
-        { action: 'dismiss', title: 'Cerrar' },
-      ],
-    }))
   )
 })
 
