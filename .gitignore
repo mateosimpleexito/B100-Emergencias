@@ -46,3 +46,6 @@ next-env.d.ts
 # local scripts with credentials — never commit
 send-push.mjs
 google-services.json
+
+# claude local settings (may contain secrets)
+.claude/settings.local.json
