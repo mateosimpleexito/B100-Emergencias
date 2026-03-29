@@ -19,7 +19,10 @@ const B100_UNITS = ['M100-1', 'RES-100', 'AMB-100', 'AUX-100', 'AUX100-2']
 const seenNroParts = new Set()
 let initialized = false
 let consecutiveErrors = 0
+let pollCount = 0
+let lastB100Check = ''
 const MAX_BACKOFF_MS = 60_000
+const HEARTBEAT_EVERY = 100 // log heartbeat every 100 polls (~5 min at 3s interval)
 
 function fetchWithTimeout(url, options = {}) {
   const controller = new AbortController()
@@ -66,22 +69,36 @@ async function poll() {
   try {
     const html = await fetchPage()
     consecutiveErrors = 0 // reset backoff on success
+    pollCount++
 
-    if (!pageHasB100(html)) {
+    const hasB100 = pageHasB100(html)
+    const nroPartes = extractNroPartes(html)
+
+    // Heartbeat log every ~5 min so we know incident polling is alive
+    if (pollCount % HEARTBEAT_EVERY === 0) {
+      console.log(`[B100] ♥ heartbeat — poll #${pollCount}, ${nroPartes.length} emergencias en página, B100 activo: ${hasB100}, cache: ${seenNroParts.size}`)
+    }
+
+    if (!hasB100) {
+      // Still track nro_partes so we detect NEW ones later
+      nroPartes.forEach(nro => seenNroParts.add(nro))
       if (!initialized) {
         initialized = true
-        console.log('[B100] Worker initialized — no active B100 incidents at startup')
+        console.log(`[B100] Worker initialized — no active B100 incidents (${nroPartes.length} total en página)`)
       }
       return
     }
 
     // Check if any nro_parte is new (not seen before)
-    const nroPartes = extractNroPartes(html)
-    const hasNewParts = nroPartes.some(nro => !seenNroParts.has(nro))
+    const newParts = nroPartes.filter(nro => !seenNroParts.has(nro))
 
-    if (!hasNewParts && initialized) {
+    if (newParts.length === 0 && initialized) {
       // All parts already seen — skip redundant API call
       return
+    }
+
+    if (newParts.length > 0) {
+      console.log(`[B100] 🆕 Nuevos nro_parte detectados: ${newParts.join(', ')} — llamando API...`)
     }
 
     // New nro_parte detected or first run — call the API
@@ -98,22 +115,18 @@ async function poll() {
 
     if (!initialized) {
       initialized = true
-      if (result.new > 0 || result.updated > 0) {
-        console.log('[B100] Worker initialized — B100 incidents detected at startup')
-      } else {
-        console.log('[B100] Worker initialized — existing B100 incidents, no changes')
-      }
+      console.log(`[B100] Worker initialized — B100 en página, API respondió: ${JSON.stringify(result)}`)
     }
 
     if (result.new > 0) {
-      console.log(`[B100] 🚨 ${result.new} nuevo(s) incidente(s) — notificaciones enviadas`)
+      console.log(`[B100] 🚨 ${result.new} nuevo(s) incidente(s) B100 — notificaciones enviadas`)
     }
     if (result.updated > 0) {
       console.log(`[B100] 🔄 ${result.updated} incidente(s) actualizado(s)`)
     }
   } catch (err) {
     consecutiveErrors++
-    console.error('[B100] Poll error:', err.message)
+    console.error(`[B100] Poll error (#${consecutiveErrors}):`, err.message)
   }
 }
 
